@@ -1,0 +1,30 @@
+{
+  "name": "workspace",
+  "version": "0.0.0",
+  "license": "MIT",
+  "packageManager": "pnpm@10.34.4",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"pnpm dev:api\" \"pnpm dev:web\"",
+    "dev:api": "cross-env PORT=8080 NODE_ENV=development pnpm --filter @workspace/api-server run dev",
+    "dev:web": "cross-env PORT=5173 BASE_PATH=/ API_PORT=8080 pnpm --filter @workspace/smart-home run dev",
+    "build": "pnpm run typecheck && pnpm run build:api && pnpm run build:web",
+    "build:web": "cross-env PORT=5173 BASE_PATH=/ pnpm --filter @workspace/smart-home run build",
+    "build:api": "pnpm --filter @workspace/api-server run build",
+    "start": "cross-env PORT=8080 NODE_ENV=production PUBLIC_DIR=../smart-home/dist/public pnpm --filter @workspace/api-server run start",
+    "preview": "cross-env PORT=5173 BASE_PATH=/ API_PORT=8080 pnpm --filter @workspace/smart-home run serve",
+    "typecheck:libs": "tsc --build",
+    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --if-present run typecheck",
+    "test": "pnpm -r --filter \"./artifacts/**\" --if-present run test",
+    "codegen": "pnpm --filter @workspace/api-spec run codegen"
+  },
+  "private": true,
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "cross-env": "^10.1.0",
+    "prettier": "^3.8.4",
+    "typescript": "~5.9.3"
+  }
+}

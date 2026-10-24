@@ -1,0 +1,46 @@
+========================================
+  SMART HOME DASHBOARD
+  How to Run
+========================================
+
+REQUIREMENTS:
+  - Node.js 18+
+  - pnpm
+
+
+STEP 1 — Install dependencies (one time)
+-----------------------------------------
+
+  pnpm install
+
+
+STEP 2 — Start servers (two terminals)
+-----------------------------------------
+
+  Open TWO terminal windows (PowerShell or WSL).
+
+  Terminal 1 — API Server (port 8080):
+    pnpm dev:api
+
+  Terminal 2 — Frontend (port 5173):
+    pnpm dev:web
+
+
+STEP 3 — Open browser
+-----------------------------------------
+
+  http://localhost:5173
+
+
+STOPPING
+-----------------------------------------
+
+  Press Ctrl+C in each terminal.
+
+
+OTHER COMMANDS
+-----------------------------------------
+
+  pnpm build        — Typecheck + build all
+  pnpm typecheck    — Typecheck only
+  pnpm codegen      — Regenerate API from OpenAPI spec

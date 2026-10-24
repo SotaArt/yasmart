@@ -1,0 +1,14 @@
+node_modules
+**/node_modules
+**/dist
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+data
+**/data
+_study
+*.docx
+/дизайн.jpg
+artifacts/api-server/data
