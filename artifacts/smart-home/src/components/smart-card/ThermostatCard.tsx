@@ -5,14 +5,17 @@ import { getUserInfoKey } from "@/lib/query-keys";
 import type { CardSize } from "./SmartCard";
 import { ContextMenu, useContextMenu } from "@/components/ContextMenu";
 import {
-  getDeviceIcon, isDeviceOn, getAcMode, getAcTemperature, getAcFanSpeed, getSensorReadings, AC_MODE_LABELS, type AcMode, type Device,
+  getDeviceIcon,
+  isDeviceOn,
+  getAcTemperature,
+  getSensorReadings,
+  type Device,
 } from "@/lib/yandex";
 import { toast } from "@/hooks/use-toast";
 import { deviceCommandQueue } from "@/lib/command-queue";
 import type { TileSize } from "@/hooks/use-panel-config";
 import { Pin, PinOff, Maximize2, Minimize2, Trash2 } from "lucide-react";
-import { LuxTempControl, LuxButton, LuxBadge, CardFrame } from "./premium";
-
+import { CardFrame, CardMetric } from "./premium";
 
 interface ThermostatCardProps {
   device: Device;
@@ -25,13 +28,6 @@ interface ThermostatCardProps {
   onToggleCompact?: () => void;
 }
 
-function getFanSpeedLabel(value: number | string | undefined): string {
-  if (value === undefined) return "";
-  if (typeof value === "number") return `${value}`;
-  const labels: Record<string, string> = { auto: "Авто", low: "Тихо", medium: "Средне", high: "Максимум" };
-  return labels[value] ?? String(value);
-}
-
 export function ThermostatCard({
   device,
   token,
@@ -40,7 +36,6 @@ export function ThermostatCard({
   onPin,
   onDelete,
   onResize,
-  onToggleCompact,
 }: ThermostatCardProps) {
   const queryClient = useQueryClient();
   const controlDevice = useControlDevice({
@@ -48,20 +43,12 @@ export function ThermostatCard({
   });
 
   const isOn = isDeviceOn(device);
-  const icon = getDeviceIcon(device.type);
+  const icon = getDeviceIcon(device.type, device.id);
   const isPinned = tileConfig?.pinned ?? false;
-  const isAc = device.type === "devices.types.thermostat.ac";
-  const isHeater = device.type === "devices.types.thermostat.heater";
-  const subtitle = isHeater ? "Обогреватель" : isAc ? "Кондиционер" : "Термостат";
   const { menuState, handleLongPressStart, closeMenu } = useContextMenu();
 
-  const acMode = getAcMode(device);
   const tempInfo = getAcTemperature(device);
   const targetTemp = tempInfo.value;
-  const minTemp = tempInfo.min ?? 16;
-  const maxTemp = tempInfo.max ?? 30;
-  const fanInfo = getAcFanSpeed(device);
-  const fanSpeed = fanInfo.value;
   const readings = getSensorReadings(device);
   const currentTemp = readings.temperature;
 
@@ -93,26 +80,19 @@ export function ThermostatCard({
     },
   ];
 
-  const handleContextMenu = useCallback((e: React.MouseEvent) => {
-    handleLongPressStart(e, contextMenuItems);
-  }, [contextMenuItems, handleLongPressStart]);
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      handleLongPressStart(e, contextMenuItems);
+    },
+    [contextMenuItems, handleLongPressStart]
+  );
 
   const handleToggle = () => {
     const newValue = !isOn;
-    deviceCommandQueue.add(() =>
-      controlDevice.mutateAsync({
-        deviceId: device.id,
-        data: { actions: [{ type: "devices.capabilities.on_off", state: { instance: "on", value: newValue } }] },
-      })
-    ).then(() => {
-      toast({ variant: "success", title: newValue ? "Термостат включён" : "Термостат выключен", description: device.name });
-      queryClient.invalidateQueries({ queryKey: getUserInfoKey(token) });
-    }).catch(() => {
-      toast({ variant: "destructive", title: "Ошибка", description: `Не удалось изменить состояние ${device.name}` });
-    });
-  };
+    const instance =
+      device.capabilities?.find((c) => c.type === "devices.capabilities.on_off")
+        ?.state?.instance ?? "on";
 
-  const handleTempChange = (newTemp: number) => {
     queryClient.setQueryData(getUserInfoKey(token), (old: any) => {
       if (!old) return old;
       return {
@@ -122,30 +102,42 @@ export function ThermostatCard({
           return {
             ...d,
             capabilities: d.capabilities.map((c: any) =>
-              c.type === "devices.capabilities.range" && c.state?.instance === "temperature"
-                ? { ...c, state: { ...c.state, value: newTemp } }
+              c.type === "devices.capabilities.on_off"
+                ? { ...c, state: { ...(c.state ?? {}), instance, value: newValue } }
                 : c
             ),
           };
         }),
       };
     });
-    controlDevice.mutate({
-      deviceId: device.id,
-      data: { actions: [{ type: "devices.capabilities.range", state: { instance: "temperature", value: newTemp } }] },
-    });
-  };
 
-  const setMode = (mode: AcMode) => {
-    controlDevice.mutate({
-      deviceId: device.id,
-      data: { actions: [{ type: "devices.capabilities.mode", state: { instance: "thermostat", value: mode } }] },
-    }, {
-      onSuccess: () => queryClient.invalidateQueries({ queryKey: getUserInfoKey(token) }),
-    });
+    deviceCommandQueue
+      .add(() =>
+        controlDevice.mutateAsync({
+          deviceId: device.id,
+          data: {
+            actions: [
+              { type: "devices.capabilities.on_off", state: { instance, value: newValue } },
+            ],
+          },
+        })
+      )
+      .then(() => {
+        toast({
+          variant: "success",
+          title: newValue ? "Термостат включён" : "Термостат выключен",
+          description: device.name,
+        });
+      })
+      .catch(() => {
+        queryClient.invalidateQueries({ queryKey: getUserInfoKey(token) });
+        toast({
+          variant: "destructive",
+          title: "Ошибка",
+          description: `Не удалось изменить состояние ${device.name}`,
+        });
+      });
   };
-
-  const MODES: AcMode[] = ["auto", "cool", "heat", "dry", "fan_only"];
 
   return (
     <CardFrame
@@ -157,64 +149,20 @@ export function ThermostatCard({
       dataTestId={`tile-device-${device.id}`}
       icon={icon}
       name={device.name}
-      subtitle={subtitle}
+      metric={
+        <CardMetric
+          value={
+            currentTemp !== undefined
+              ? `${currentTemp.toFixed(1)}°`
+              : targetTemp !== undefined
+                ? `${Math.round(targetTemp * 2) / 2}°`
+                : "—"
+          }
+          label={currentTemp !== undefined ? "сейчас" : "цель"}
+        />
+      }
       power={{ on: isOn, onChange: handleToggle, label: device.name }}
       timer
-      top={
-        <div className="flex flex-col items-center">
-          {currentTemp !== undefined && (
-            <span className={`font-mono leading-none text-slate-400 ${size === "compact" ? "text-[9px]" : "text-[11px]"}`}>
-              сейчас {currentTemp.toFixed(1)}°
-            </span>
-          )}
-          {size === "compact" && acMode && (
-            <LuxBadge variant={acMode === "cool" ? "info" : acMode === "heat" ? "error" : "gold"} active>
-              {AC_MODE_LABELS[acMode]?.emoji ?? "⚙️"} {AC_MODE_LABELS[acMode]?.label ?? acMode}
-            </LuxBadge>
-          )}
-        </div>
-      }
-      bottom={
-        <div className={`w-full space-y-1.5 transition-opacity duration-300 ${isOn ? "" : "opacity-30 pointer-events-none select-none"}`}>
-          {targetTemp !== undefined && (
-            <LuxTempControl
-              value={targetTemp}
-              min={minTemp}
-              max={maxTemp}
-              step={0.5}
-              label="Целевая"
-              displayValue
-              displayClassName={size === "compact" ? "text-xl" : "text-2xl"}
-              onChange={handleTempChange}
-            />
-          )}
-
-          {(size === "expanded" || size === "full") && isAc && (
-            <div className="w-full space-y-2">
-              <p className="text-[10px] text-slate-400 uppercase tracking-wider text-center">Режим</p>
-              <div className="flex flex-wrap justify-center gap-1">
-                {MODES.map((m) => (
-                  <LuxButton
-                    key={m}
-                    variant={acMode === m ? "gold" : "quiet"}
-                    glow={acMode === m}
-                    onClick={() => setMode(m)}
-                    className="px-2 py-1 text-[9px]"
-                  >
-                    {AC_MODE_LABELS[m]?.emoji} {AC_MODE_LABELS[m]?.label}
-                  </LuxButton>
-                ))}
-              </div>
-              {fanSpeed !== undefined && (
-                <div className="flex items-center justify-between px-2 py-1 rounded-lg bg-slate-900/60 border border-slate-700/40">
-                  <span className="text-[10px] text-slate-400">Вентилятор</span>
-                  <span className="text-[10px] font-mono text-slate-300">{getFanSpeedLabel(fanSpeed)}</span>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      }
       overlay={
         <ContextMenu
           open={menuState.open}

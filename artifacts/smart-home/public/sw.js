@@ -1,4 +1,4 @@
-const CACHE_NAME = "smart-home-v1";
+const CACHE_NAME = "smart-home-v2";
 
 let scopeBase;
 try {
@@ -7,7 +7,15 @@ try {
   scopeBase = "/";
 }
 
-const STATIC_ASSETS = [scopeBase, `${scopeBase}index.html`];
+const STATIC_ASSETS = [
+  scopeBase,
+  `${scopeBase}index.html`,
+  `${scopeBase}manifest.json`,
+  `${scopeBase}manifest-user.json`,
+  `${scopeBase}manifest-mobile.json`,
+  `${scopeBase}icon.svg`,
+  `${scopeBase}icon-maskable.svg`,
+];
 
 // Install — cache the application shell at the deployment base path
 self.addEventListener("install", (event) => {

@@ -112,7 +112,7 @@ export function CameraCard({
     request: { headers: { "x-yandex-token": token } },
   });
 
-  const icon = getDeviceIcon(device.type);
+  const icon = getDeviceIcon(device.type, device.id);
   const isPinned = tileConfig?.pinned ?? false;
   const cameraState = getCameraState(device);
   const hasMotion = getMotionState(device);

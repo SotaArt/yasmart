@@ -23,7 +23,7 @@ export function WaterLeakCard({
   onResize,
   onToggleCompact,
 }: WaterLeakCardProps) {
-  const icon = getDeviceIcon(device.type);
+  const icon = getDeviceIcon(device.type, device.id);
   const isPinned = tileConfig?.pinned ?? false;
 
   // Read leak state from properties

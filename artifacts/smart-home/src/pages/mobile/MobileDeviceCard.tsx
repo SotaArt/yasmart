@@ -5,6 +5,7 @@ import { getUserInfoKey } from "@/lib/query-keys";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { SensorReadingsInline } from "@/components/sensors";
 import { LuxBar } from "@/components/smart-card/premium";
+import { DeviceIcon } from "@/components/smart-card/DeviceIcon";
 import { toast } from "@/hooks/use-toast";
 import {
   getDeviceStatus,
@@ -318,9 +319,7 @@ export function MobileDeviceCard({ device, token }: MobileDeviceCardProps) {
     >
       {/* Название полное (до 2 строк), без сокращений */}
       <div className="flex items-start gap-2">
-        <span className="text-xl flex-shrink-0 leading-none mt-0.5" role="img">
-          {getDeviceIcon(device.type)}
-        </span>
+        <DeviceIcon icon={getDeviceIcon(device.type, device.id)} className="mt-0.5" />
         <div className="min-w-0 flex-1">
           <p className="text-[13px] font-semibold text-foreground leading-snug">{device.name}</p>
           <p className={`text-[10px] ${statusClass}`}>

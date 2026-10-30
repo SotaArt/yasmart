@@ -19,10 +19,11 @@ interface PowerPillProps {
   label: string;
   size?: PillSize;
   disabled?: boolean;
+  fill?: boolean;
 }
 
 /** Круглая кнопка питания с иконкой ⏻ — увеличенная для удобного тапа */
-export function PowerPill({ on, onChange, label, size = "md", disabled }: PowerPillProps) {
+export function PowerPill({ on, onChange, label, size = "md", disabled, fill = false }: PowerPillProps) {
   return (
     <motion.button
       type="button"
@@ -36,10 +37,12 @@ export function PowerPill({ on, onChange, label, size = "md", disabled }: PowerP
       className={cn(
         "relative flex items-center justify-center rounded-full border transition-all duration-300 select-none shrink-0",
         "disabled:opacity-30 disabled:cursor-not-allowed",
-        size === "sm" ? "w-9 h-9" :
-        size === "md" ? "w-11 h-11" :
-        size === "lg" ? "w-12 h-12" :
-        "w-14 h-14",
+        fill
+          ? "h-full w-auto aspect-square max-h-full min-w-9 min-h-9"
+          : size === "sm" ? "w-9 h-9" :
+            size === "md" ? "w-11 h-11" :
+            size === "lg" ? "w-12 h-12" :
+            "w-14 h-14",
         on
           ? "bg-gradient-to-br from-[#d4af37] via-[#e8cf6a] to-[#f3e5ab] text-[#0d0f12] border-[#f3e5ab]/70 shadow-[0_0_18px_rgba(212,175,55,0.5)]"
           : "bg-white/[0.06] backdrop-blur-md border-white/10 text-slate-400 hover:bg-white/[0.12] hover:text-slate-200 hover:border-white/20"
@@ -47,6 +50,7 @@ export function PowerPill({ on, onChange, label, size = "md", disabled }: PowerP
     >
       <Power className={cn(
         "transition-all duration-300",
+        fill ? "w-2/5 h-2/5" :
         size === "sm" ? "w-4 h-4" :
         size === "md" ? "w-5 h-5" :
         size === "lg" ? "w-5 h-5" :

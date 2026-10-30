@@ -25,7 +25,7 @@ export function SensorCard({
   onResize,
   onToggleCompact,
 }: SensorCardProps) {
-  const icon = getDeviceIcon(device.type);
+  const icon = getDeviceIcon(device.type, device.id);
   const readings = getSensorReadings(device);
   const isPinned = tileConfig?.pinned ?? false;
 

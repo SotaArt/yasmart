@@ -7,4 +7,6 @@ export { LuxBadge } from "./LuxBadge";
 export { FitContent } from "./FitContent";
 export { SmartCardDivider } from "./SmartCardDivider";
 export { CardHeader } from "./CardHeader";
+export { CardSettingsLink } from "./CardSettingsLink";
+export { CardMetric } from "./CardMetric";
 export { CardFrame } from "./CardFrame";

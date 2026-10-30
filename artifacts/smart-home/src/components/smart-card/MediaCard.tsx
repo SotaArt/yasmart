@@ -5,9 +5,8 @@ import type { CardSize } from "./SmartCard";
 import { getDeviceIcon, isDeviceOn, getDeviceCapability, type Device } from "@/lib/yandex";
 import { deviceCommandQueue } from "@/lib/command-queue";
 import { toast } from "@/hooks/use-toast";
-import { Play, Pause, SkipBack, SkipForward } from "lucide-react";
 import type { TileSize } from "@/hooks/use-panel-config";
-import { LuxButton, LuxBar, CardFrame } from "./premium";
+import { CardFrame, CardMetric } from "./premium";
 
 
 interface MediaCardProps {
@@ -37,7 +36,7 @@ export function MediaCard({
   });
 
   const isOn = isDeviceOn(device);
-  const icon = getDeviceIcon(device.type);
+  const icon = getDeviceIcon(device.type, device.id);
   const isPinned = tileConfig?.pinned ?? false;
 
   const playbackCap = getDeviceCapability(device, "devices.capabilities.mode", "playback");
@@ -79,45 +78,6 @@ export function MediaCard({
     });
   };
 
-  const handlePlayback = (action: "play" | "pause" | "next" | "prev") => {
-    const value =
-      action === "next" ? "next_track" :
-      action === "prev" ? "prev_track" :
-      action;
-    deviceCommandQueue.add(() =>
-      controlDevice.mutateAsync({
-        deviceId: device.id,
-        data: { actions: [{ type: "devices.capabilities.mode", state: { instance: "playback", value } }] },
-      })
-    ).catch(() => {
-      queryClient.invalidateQueries({ queryKey: getUserInfoKey(token) });
-    });
-  };
-
-  const handleVolumeChange = (newVol: number) => {
-    queryClient.setQueryData(getUserInfoKey(token), (old: any) => {
-      if (!old) return old;
-      return {
-        ...old,
-        devices: old.devices.map((d: any) => {
-          if (d.id !== device.id) return d;
-          return {
-            ...d,
-            capabilities: d.capabilities.map((c: any) =>
-              c.type === "devices.capabilities.range" && c.state?.instance === "volume"
-                ? { ...c, state: { ...c.state, value: newVol } }
-                : c
-            ),
-          };
-        }),
-      };
-    });
-    controlDevice.mutate({
-      deviceId: device.id,
-      data: { actions: [{ type: "devices.capabilities.range", state: { instance: "volume", value: newVol } }] },
-    });
-  };
-
   return (
     <CardFrame
       size={size}
@@ -127,51 +87,15 @@ export function MediaCard({
       dataTestId={`tile-device-${device.id}`}
       icon={icon}
       name={device.name}
+      metric={
+        hasVolume ? (
+          <CardMetric value={`${Math.round(volume)}%`} label="громкость" />
+        ) : hasPlayback ? (
+          <CardMetric value={isPlaying ? "Играет" : "Пауза"} label="воспроизведение" />
+        ) : undefined
+      }
       power={{ on: isOn, onChange: handlePowerToggle, label: device.name }}
       timer
-      top={
-        <div className="flex items-baseline gap-1">
-          <span className={`font-bold text-foreground leading-none ${size === "compact" ? "text-base" : "text-xl"} ${isOn && "text-[#f3e5ab]"}`}>
-            {isOn ? (isPlaying ? "Воспроизведение" : "Пауза") : "Выкл"}
-          </span>
-        </div>
-      }
-      bottom={
-        <div className={`w-full space-y-1.5 transition-opacity duration-300 ${isOn ? "" : "opacity-30 pointer-events-none select-none"}`}>
-          {hasPlayback && size !== "compact" && (
-            <div className="flex items-center justify-center gap-2" onClick={(e) => e.stopPropagation()}>
-              <LuxButton variant="quiet" onClick={() => handlePlayback("prev")} className="w-9 h-9 flex items-center justify-center !p-0">
-                <SkipBack className="w-3.5 h-3.5" />
-              </LuxButton>
-              <LuxButton
-                variant={isPlaying ? "gold" : "action"}
-                glow={isPlaying}
-                onClick={() => handlePlayback(isPlaying ? "pause" : "play")}
-                className="w-10 h-10 flex items-center justify-center !p-0"
-              >
-                {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
-              </LuxButton>
-              <LuxButton variant="quiet" onClick={() => handlePlayback("next")} className="w-9 h-9 flex items-center justify-center !p-0">
-                <SkipForward className="w-3.5 h-3.5" />
-              </LuxButton>
-            </div>
-          )}
-
-          {hasVolume && (size === "expanded" || size === "full") && (
-            <div className="w-full">
-              <LuxBar
-                value={volume}
-                min={0}
-                max={100}
-                step={1}
-                label="Громкость"
-                display={(v) => `${Math.round(v)}%`}
-                onChange={handleVolumeChange}
-              />
-            </div>
-          )}
-        </div>
-      }
     />
   );
 }

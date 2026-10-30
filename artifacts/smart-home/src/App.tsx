@@ -10,6 +10,7 @@ import NotFound from "@/pages/not-found";
 const EngineeringPanel = lazy(() => import("@/pages/engineering-panel/index"));
 const UserPanel = lazy(() => import("@/pages/user-panel"));
 const MobilePanel = lazy(() => import("@/pages/mobile-panel"));
+const PwaLauncher = lazy(() => import("@/pages/pwa-launcher"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -37,6 +38,8 @@ function Router() {
           <Route path="/panel/:householdId" component={UserPanel} />
           {/* Mobile panel is standalone — touch-ориентированная версия */}
           <Route path="/mobile/:householdId" component={MobilePanel} />
+          {/* PWA entry point — opens the last used panel */}
+          <Route path="/app" component={PwaLauncher} />
           <Route>
             <AppLayout>
               <Switch>

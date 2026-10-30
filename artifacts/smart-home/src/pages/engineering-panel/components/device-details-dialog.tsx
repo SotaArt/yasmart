@@ -18,6 +18,49 @@ import {
   type Device,
 } from "@/lib/yandex";
 
+const CAP_TYPE_LABELS: Record<string, string> = {
+  "devices.capabilities.on_off": "Вкл/Выкл",
+  "devices.capabilities.mode": "Режим",
+  "devices.capabilities.range": "Диапазон",
+  "devices.capabilities.toggle": "Переключатель",
+  "devices.capabilities.color_setting": "Цвет",
+};
+
+const CAP_INSTANCE_LABELS: Record<string, string> = {
+  on: "Включение",
+  brightness: "Яркость",
+  temperature: "Температура",
+  thermostat: "Термостат",
+  fan_speed: "Вентилятор",
+  work_speed: "Скорость",
+  swing: "Качание",
+  night_mode: "Ночной режим",
+  color_temperature: "Цветовая температура",
+  temperature_k: "Цветовая температура",
+  hsv: "Цвет HSV",
+  rgb: "Цвет RGB",
+  open: "Открытие",
+  humidity: "Влажность",
+};
+
+const PROP_INSTANCE_LABELS: Record<string, string> = {
+  temperature: "Температура",
+  humidity: "Влажность",
+  co2_level: "CO2",
+  "pm2.5_density": "PM2.5",
+  battery_level: "Батарея",
+  motion: "Движение",
+  open: "Открытие",
+  presence: "Присутствие",
+  vibration: "Вибрация",
+  water_leak: "Протечка",
+  illumination: "Освещённость",
+  signal_strength: "Сигнал",
+  rssi: "Сигнал",
+  smoke: "Дым",
+  gas: "Газ",
+};
+
 interface DeviceDetailsDialogProps {
   device: Device;
   token: string;
@@ -107,7 +150,7 @@ export function DeviceDetailsDialog({ device, token }: DeviceDetailsDialogProps)
           {activeTab === "summary" ? (
             <div className="space-y-4 text-sm">
               {/* Basic info */}
-              <Section title="Основная информация">
+              <Section title="Технические данные">
                 <InfoRow label="ID" value={device.id} mono />
                 <InfoRow label="Тип" value={getDeviceTypeLabel(device.type)} />
                 <InfoRow label="Тип (raw)" value={device.type} mono />
@@ -202,13 +245,17 @@ export function DeviceDetailsDialog({ device, token }: DeviceDetailsDialogProps)
               {capabilityCount > 0 && (
                 <Section title={`Возможности (${capabilityCount})`}>
                   <div className="space-y-2">
-                    {device.capabilities?.map((cap, i) => (
+                    {device.capabilities?.map((cap, i) => {
+                      const instance = cap.state?.instance ?? cap.parameters?.instance;
+                      return (
                       <div key={i} className="p-2 rounded-lg bg-muted/30 border border-border/30">
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-xs font-medium text-foreground">
-                            {cap.type.split(".").pop()}
-                            {cap.state?.instance && (
-                              <span className="text-muted-foreground ml-1">· {cap.state.instance}</span>
+                            {CAP_TYPE_LABELS[cap.type] ?? cap.type.split(".").pop()}
+                            {instance && (
+                              <span className="text-muted-foreground ml-1">
+                                · {CAP_INSTANCE_LABELS[instance] ?? instance}
+                              </span>
                             )}
                           </span>
                           <span className="text-xs font-mono text-foreground">
@@ -229,7 +276,8 @@ export function DeviceDetailsDialog({ device, token }: DeviceDetailsDialogProps)
                           )}
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </Section>
               )}
@@ -242,7 +290,7 @@ export function DeviceDetailsDialog({ device, token }: DeviceDetailsDialogProps)
                       <div key={i} className="p-2 rounded-lg bg-muted/30 border border-border/30">
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-xs font-medium text-foreground">
-                            {prop.type.split(".").pop()}
+                            {PROP_INSTANCE_LABELS[prop.parameters?.instance ?? ""] ?? prop.type.split(".").pop()}
                             {prop.parameters?.instance && (
                               <span className="text-muted-foreground ml-1">· {prop.parameters.instance}</span>
                             )}

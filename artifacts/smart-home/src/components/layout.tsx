@@ -1,6 +1,3 @@
-import { Link } from "wouter";
-import { Settings } from "lucide-react";
-
 export function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-[100dvh] w-full flex flex-col bg-background text-foreground">
@@ -12,16 +9,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
             <span className="font-semibold tracking-tight">Smart Command</span>
           </div>
-          <nav className="flex items-center space-x-1" aria-label="Основная навигация">
-            <Link
-              href="/"
-              className="p-2 rounded-md transition-colors bg-primary/20 text-primary"
-              data-testid="nav-engineering"
-              aria-label="Инженерная панель"
-            >
-              <Settings className="w-5 h-5" />
-            </Link>
-          </nav>
         </div>
       </header>
       <main className="flex-1 w-full relative">{children}</main>

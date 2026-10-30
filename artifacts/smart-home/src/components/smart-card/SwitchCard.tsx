@@ -6,7 +6,7 @@ import { isDeviceOn, getDeviceIcon, type Device } from "@/lib/yandex";
 import { deviceCommandQueue } from "@/lib/command-queue";
 import { toast } from "@/hooks/use-toast";
 import type { TileSize } from "@/hooks/use-panel-config";
-import { PowerPill, CardFrame } from "./premium";
+import { CardFrame, CardMetric } from "./premium";
 
 interface SwitchCardProps {
   device: Device;
@@ -19,7 +19,9 @@ interface SwitchCardProps {
   onToggleCompact?: () => void;
 }
 
-function getToggleChannels(device: Device): { instance: string; value: boolean; label: string }[] {
+function getToggleChannels(
+  device: Device
+): { instance: string; value: boolean; label: string }[] {
   return (device.capabilities ?? [])
     .filter((c: any) => c.type === "devices.capabilities.on_off")
     .map((c: any, idx: number) => ({
@@ -29,28 +31,23 @@ function getToggleChannels(device: Device): { instance: string; value: boolean; 
     }));
 }
 
-export function SwitchCard({
-  device,
-  token,
-  size,
-  tileConfig,
-  onPin,
-  onDelete,
-  onResize,
-  onToggleCompact,
-}: SwitchCardProps) {
+export function SwitchCard({ device, token, size, tileConfig }: SwitchCardProps) {
   const queryClient = useQueryClient();
   const controlDevice = useControlDevice({
     request: { headers: { "x-yandex-token": token } },
   });
 
   const isOn = isDeviceOn(device);
-  const icon = getDeviceIcon(device.type);
+  const icon = getDeviceIcon(device.type, device.id);
   const isPinned = tileConfig?.pinned ?? false;
   const channels = getToggleChannels(device);
   const isMultiChannel = channels.length > 1;
+  const activeChannels = channels.filter((channel) => channel.value).length;
 
-  const toggleChannel = (instance: string, newValue: boolean) => {
+  const toggleAll = (newValue: boolean) => {
+    if (channels.length === 0) return;
+    const instances = channels.map((channel) => channel.instance);
+
     queryClient.setQueryData(getUserInfoKey(token), (old: any) => {
       if (!old) return old;
       return {
@@ -59,62 +56,67 @@ export function SwitchCard({
           if (d.id !== device.id) return d;
           return {
             ...d,
-            capabilities: d.capabilities.map((c: any) =>
-              c.type === "devices.capabilities.on_off" && c.state?.instance === instance
+            capabilities: d.capabilities.map((c: any) => {
+              const instance = c.state?.instance ?? c.parameters?.instance;
+              return c.type === "devices.capabilities.on_off" && instances.includes(instance)
                 ? { ...c, state: { ...(c.state ?? {}), value: newValue } }
-                : c
-            ),
+                : c;
+            }),
           };
         }),
       };
     });
-    deviceCommandQueue.add(() =>
-      controlDevice.mutateAsync({
-        deviceId: device.id,
-        data: { actions: [{ type: "devices.capabilities.on_off", state: { instance, value: newValue } }] },
-      })
-    ).then(() => {
-      toast({ variant: "success", title: newValue ? "Канал включён" : "Канал выключен", description: `${device.name} (${instance})` });
-    }).catch(() => {
-      queryClient.invalidateQueries({ queryKey: getUserInfoKey(token) });
-      toast({ variant: "destructive", title: "Ошибка", description: `Не удалось изменить канал ${device.name}` });
-    });
-  };
 
-  const primary = channels[0]?.value ?? isOn;
+    deviceCommandQueue
+      .add(() =>
+        controlDevice.mutateAsync({
+          deviceId: device.id,
+          data: {
+            actions: instances.map((instance) => ({
+              type: "devices.capabilities.on_off",
+              state: { instance, value: newValue },
+            })),
+          },
+        })
+      )
+      .then(() => {
+        toast({
+          variant: "success",
+          title: newValue ? "Включено" : "Выключено",
+          description: device.name,
+        });
+      })
+      .catch(() => {
+        queryClient.invalidateQueries({ queryKey: getUserInfoKey(token) });
+        toast({
+          variant: "destructive",
+          title: "Ошибка",
+          description: `Не удалось изменить ${device.name}`,
+        });
+      });
+  };
 
   return (
     <CardFrame
       size={size}
       variant="toggle"
-      active={primary}
+      active={isOn}
       pinned={isPinned}
       dataTestId={`tile-device-${device.id}`}
       icon={icon}
       name={device.name}
-      power={isMultiChannel ? false : { on: primary, onChange: (v) => toggleChannel(channels[0]?.instance ?? "on", v), label: device.name }}
-      timer
-      bottom={
+      labelOn={isMultiChannel ? `Включено ${activeChannels} из ${channels.length}` : undefined}
+      metric={
         isMultiChannel ? (
-          <div className="w-full space-y-1.5">
-            {channels.map((ch) => (
-              <div key={ch.instance}
-                className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-slate-900/60 border border-slate-700/40 transition-colors"
-              >
-                <span className="text-[10px] text-slate-400">{ch.label}</span>
-                <div className="flex items-center gap-2">
-                  <PowerPill
-                    size="sm"
-                    on={ch.value}
-                    onChange={(v) => toggleChannel(ch.instance, v)}
-                    label={`${device.name} · ${ch.label}`}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
+          <CardMetric value={`${activeChannels}/${channels.length}`} label="каналы" />
         ) : undefined
       }
+      power={
+        channels.length > 0
+          ? { on: isMultiChannel ? activeChannels > 0 : isOn, onChange: toggleAll, label: device.name }
+          : false
+      }
+      timer
     />
   );
 }

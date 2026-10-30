@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { WifiOff, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { FitContent } from "./premium/FitContent";
+import { DeviceIcon } from "./DeviceIcon";
 import type {
   SmartCardContextValue,
   SmartCardHeaderProps,
@@ -147,15 +148,7 @@ function SmartCardHeader({ icon, name, room, connection }: SmartCardHeaderProps)
   return (
     <div className="flex items-start justify-between mb-1">
       <div className="flex items-center gap-2 min-w-0">
-        <span className={cn(
-          "leading-none shrink-0 transition-all duration-200",
-          size === "full" && "text-3xl",
-          size === "expanded" && "text-2xl",
-          size === "standard" && "text-xl",
-          size === "compact" && "text-lg"
-        )} role="img">
-          {icon}
-        </span>
+        <DeviceIcon icon={icon} size={size} />
         <div className="min-w-0">
           <p className={cn(
             "font-semibold leading-tight text-foreground truncate transition-all duration-200",

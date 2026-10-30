@@ -6,7 +6,7 @@ import { isDeviceOn, getDeviceIcon, getDeviceProperty, type Device } from "@/lib
 import { deviceCommandQueue } from "@/lib/command-queue";
 import { toast } from "@/hooks/use-toast";
 import type { TileSize } from "@/hooks/use-panel-config";
-import { CardFrame } from "./premium";
+import { CardFrame, CardMetric } from "./premium";
 
 
 interface SocketCardProps {
@@ -22,16 +22,6 @@ interface SocketCardProps {
 
 function getPower(device: Device): number | undefined {
   const prop = getDeviceProperty(device, "power");
-  return prop?.state?.value as number | undefined;
-}
-
-function getVoltage(device: Device): number | undefined {
-  const prop = getDeviceProperty(device, "voltage");
-  return prop?.state?.value as number | undefined;
-}
-
-function getCurrent(device: Device): number | undefined {
-  const prop = getDeviceProperty(device, "electric_current");
   return prop?.state?.value as number | undefined;
 }
 
@@ -51,11 +41,9 @@ export function SocketCard({
   });
 
   const isOn = isDeviceOn(device);
-  const icon = getDeviceIcon(device.type);
+  const icon = getDeviceIcon(device.type, device.id);
   const isPinned = tileConfig?.pinned ?? false;
   const power = getPower(device);
-  const voltage = getVoltage(device);
-  const current = getCurrent(device);
 
   const handleToggle = () => {
     const newValue = !isOn;
@@ -98,41 +86,13 @@ export function SocketCard({
       dataTestId={`tile-device-${device.id}`}
       icon={icon}
       name={device.name}
+      metric={
+        power !== undefined ? (
+          <CardMetric value={`${Math.round(power)} Вт`} label="мощность" />
+        ) : undefined
+      }
       power={{ on: isOn, onChange: handleToggle, label: device.name }}
       timer
-      top={
-        <div className="flex items-baseline gap-1">
-          <span className={`font-bold text-foreground leading-none ${size === "compact" ? "text-base" : "text-xl"} ${isOn && "text-[#f3e5ab]"}`}>
-            {power !== undefined ? `${Math.round(power)} Вт` : "—"}
-          </span>
-        </div>
-      }
-      bottom={
-        <div className={`w-full space-y-1 transition-opacity duration-300 ${isOn ? "" : "opacity-30 pointer-events-none select-none"}`}>
-          {(size === "expanded" || size === "full") && (
-            <div className="w-full space-y-1">
-              {power !== undefined && (
-                <div className="flex items-center justify-between px-2 py-1 rounded-lg bg-slate-900/60 border border-slate-700/40">
-                  <span className="text-[10px] text-slate-400">Мощность</span>
-                  <span className="text-[11px] font-mono font-semibold text-[#f3e5ab]">{Math.round(power)} Вт</span>
-                </div>
-              )}
-              {voltage !== undefined && (
-                <div className="flex items-center justify-between px-2 py-1 rounded-lg bg-slate-900/60 border border-slate-700/40">
-                  <span className="text-[10px] text-slate-400">Напряжение</span>
-                  <span className="text-[11px] font-mono text-slate-300">{Math.round(voltage)} В</span>
-                </div>
-              )}
-              {current !== undefined && (
-                <div className="flex items-center justify-between px-2 py-1 rounded-lg bg-slate-900/60 border border-slate-700/40">
-                  <span className="text-[10px] text-slate-400">Ток</span>
-                  <span className="text-[11px] font-mono text-slate-300">{current.toFixed(1)} А</span>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      }
     />
   );
 }

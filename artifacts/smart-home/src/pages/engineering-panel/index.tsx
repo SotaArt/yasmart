@@ -9,64 +9,34 @@ import { useWebSocket } from "@/hooks/use-websocket";
 import { getUserInfoKey } from "@/lib/query-keys";
 import { toast } from "@/hooks/use-toast";
 import { useEngineeringData } from "./hooks/use-engineering-data";
-import { useEventLog } from "./hooks/use-event-log";
-import { usePerformance } from "./hooks/use-performance";
-import { useApiMonitor } from "./hooks/use-api-monitor";
 import { OverviewTab } from "./overview-tab";
 import { RoomsTab } from "./rooms-tab";
 import { ScenariosTab } from "./scenarios-tab";
 import { AutomationsTab } from "./automations-tab";
+import { WidgetsTab } from "./widgets-tab";
 import { useEngine } from "./hooks/use-engine";
-import { LogsTab } from "./logs-tab";
-import { NetworkTab } from "./network-tab";
-import { ApiMonitorTab } from "./api-monitor-tab";
-import { PerformanceTab } from "./performance-tab";
-import { DiagnosticsTab } from "./diagnostics-tab";
-import { LayoutTab } from "./layout-tab";
-import { CardsTab } from "./cards-tab";
-import { RawDataDialog } from "./components/raw-data-dialog";
 import { useScenarioVisibility } from "@/hooks/use-scenario-visibility";
 import {
   Wifi,
   WifiOff,
   LogOut,
   Home,
-  EyeOff,
   Smartphone,
-  Database,
 } from "lucide-react";
-import { getDeviceIcon } from "@/lib/yandex";
 
 export default function EngineeringPanel() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState("overview");
 
   const data = useEngineeringData();
-  const eventLog = useEventLog();
-  const apiMonitor = useApiMonitor(activeTab === "api");
   const scenarioVisibility = useScenarioVisibility();
   const engine = useEngine();
-  const [rawDataOpen, setRawDataOpen] = useState(false);
 
-  // WebSocket for event log
+  // WebSocket for live engine/device updates
   const { isConnected: wsConnected } = useWebSocket({
     token: data.token ?? "",
     onMessage: (msg) => {
-      if (msg.type === "device_update") {
-        eventLog.addEntry({
-          type: "device_update",
-          deviceId: msg.deviceId as string,
-          message: `Состояние устройства ${msg.deviceId} обновлено`,
-          details: msg as any,
-        });
-      } else if (msg.type === "scenario_run") {
-        eventLog.addEntry({
-          type: "scenario_run",
-          deviceId: msg.scenarioId as string,
-          message: `Сценарий ${msg.scenarioId} выполнен`,
-          details: msg as any,
-        });
-      } else if (msg.type === "engine_state") {
+      if (msg.type === "engine_state") {
         queryClient.invalidateQueries({ queryKey: ["engine", "state"] });
       } else if (msg.type === "device_changed") {
         queryClient.invalidateQueries({ queryKey: getUserInfoKey(data.token) });
@@ -74,7 +44,6 @@ export default function EngineeringPanel() {
     },
   });
 
-  const perf = usePerformance(queryClient, wsConnected, activeTab === "performance");
 
   if (!data.isLoaded) return null;
 
@@ -101,41 +70,26 @@ export default function EngineeringPanel() {
                 data.isConnected ? "bg-[hsl(var(--gold))] animate-pulse" : "bg-muted-foreground"
               }`}
             />
-            {data.isConnected ? (
-              <Wifi key="wifi" className="w-3.5 h-3.5" />
-            ) : (
-              <WifiOff key="wifioff" className="w-3.5 h-3.5" />
-            )}
-            {data.isConnected
-              ? "Подключено"
-              : data.userInfoQuery.isLoading
-                ? "Подключение..."
-                : "Отключено"}
-          </span>
-          {wsConnected && (
-            <span className="flex items-center gap-1 text-[10px] text-[hsl(var(--gold))]/70">
-              WS
+            <Wifi className={`w-3.5 h-3.5 ${data.isConnected ? "" : "hidden"}`} />
+            <WifiOff className={`w-3.5 h-3.5 ${data.isConnected ? "hidden" : ""}`} />
+            <span>
+              {data.isConnected
+                ? "Подключено"
+                : data.userInfoQuery.isLoading
+                  ? "Подключение..."
+                  : "Отключено"}
             </span>
-          )}
-          {data.activeCount > 0 && (
-            <Badge className="bg-[hsl(var(--gold))]/20 text-[hsl(var(--gold))] border-[hsl(var(--gold))]/30 text-xs font-mono">
-              {data.activeCount} активно
-            </Badge>
-          )}
-          {data.hiddenDeviceIds.size > 0 && (
-            <button
-              onClick={() => data.setShowHidden(!data.showHidden)}
-              className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border transition-colors ${
-                data.showHidden
-                  ? "border-amber-500/50 text-amber-400 bg-amber-500/10"
-                  : "border-border/50 text-muted-foreground hover:border-border"
-              }`}
-              title="Скрытые устройства"
-            >
-              <EyeOff className="w-3.5 h-3.5" />
-              Скрыто: {data.hiddenDeviceIds.size}
-            </button>
-          )}
+          </span>
+          <span className={`flex items-center gap-1 text-[10px] text-[hsl(var(--gold))]/70 ${wsConnected ? "" : "hidden"}`}>
+            WS
+          </span>
+          <Badge
+            className={`bg-[hsl(var(--gold))]/20 text-[hsl(var(--gold))] border-[hsl(var(--gold))]/30 text-xs font-mono ${
+              data.activeCount > 0 ? "" : "hidden"
+            }`}
+          >
+            {data.activeCount} активно
+          </Badge>
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -210,78 +164,15 @@ export default function EngineeringPanel() {
             </div>
           )}
 
-          {/* Hidden devices panel */}
-          {data.showHidden && data.hiddenDeviceIds.size > 0 && (
-            <div className="mb-5 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-amber-400">
-                  Скрытые устройства ({data.hiddenDeviceIds.size})
-                </h3>
-                <button
-                  onClick={data.restoreAll}
-                  className="text-xs text-amber-400 hover:text-amber-300 border border-amber-500/40 hover:border-amber-400/60 px-2.5 py-1 rounded-md transition-colors"
-                >
-                  Показать все
-                </button>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                {data.allDevices
-                  .filter((d: any) => data.hiddenDeviceIds.has(d.id))
-                  .map((device: any) => (
-                    <div
-                      key={device.id}
-                      className="flex items-center gap-2 bg-card border border-border/50 rounded-lg px-3 py-2"
-                    >
-                      <span className="text-lg">{getDeviceIcon((device as any).type)}</span>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium truncate">{device.name}</p>
-                      </div>
-                      <button
-                        onClick={() => data.restoreDevice(device.id)}
-                        className="text-xs text-amber-400 hover:text-amber-300 flex-shrink-0 border border-amber-500/30 hover:border-amber-400/50 px-2 py-0.5 rounded transition-colors"
-                      >
-                        ↩ Вернуть
-                      </button>
-                    </div>
-                  ))}
-              </div>
-            </div>
-          )}
-
           {/* Main tabs */}
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="mb-4 h-auto flex-wrap gap-1 bg-muted/30 p-1">
               <TabsTrigger value="overview" className="text-xs">Обзор</TabsTrigger>
               <TabsTrigger value="rooms" className="text-xs">Комнаты</TabsTrigger>
-              <TabsTrigger value="layout" className="text-xs">Сетка</TabsTrigger>
-              <TabsTrigger value="cards" className="text-xs">Карточки</TabsTrigger>
               <TabsTrigger value="scenarios" className="text-xs">Сценарии</TabsTrigger>
+              <TabsTrigger value="widgets" className="text-xs">Виджеты</TabsTrigger>
               <TabsTrigger value="automations" className="text-xs">Автоматизации</TabsTrigger>
-              <TabsTrigger value="logs" className="text-xs">
-                Журнал
-                {eventLog.allEntries.length > 0 && (
-                  <Badge variant="secondary" className="ml-1 text-[10px] font-mono">{eventLog.allEntries.length}</Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="network" className="text-xs">Сеть</TabsTrigger>
-              <TabsTrigger value="api" className="text-xs">API</TabsTrigger>
-              <TabsTrigger value="performance" className="text-xs">Перформанс</TabsTrigger>
-              <TabsTrigger value="diagnostics" className="text-xs">Диагностика</TabsTrigger>
             </TabsList>
-
-            {/* Raw data row — immediately after Диагностика */}
-            <div className="mb-4">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setRawDataOpen(true)}
-                className="h-8 text-xs gap-1.5 border-border/50 hover:border-border text-muted-foreground hover:text-foreground"
-                title="Показать сырые данные по всем устройствам и скопировать"
-              >
-                <Database className="w-3.5 h-3.5" />
-                Сырые данные
-              </Button>
-            </div>
 
             <TabsContent value="overview">
               <OverviewTab
@@ -299,24 +190,6 @@ export default function EngineeringPanel() {
                 devices={data.householdDevices as any}
                 token={data.token!}
                 hideOffline={data.hideOffline}
-                hiddenIds={data.hiddenDeviceIds}
-                onHide={data.hideDevice}
-              />
-            </TabsContent>
-
-            <TabsContent value="layout">
-              <LayoutTab
-                rooms={(data.rooms as any[]) ?? []}
-                devices={(data.allDevices as any[]) ?? []}
-                scenarios={(data.scenariosQuery.data?.scenarios ?? []) as any}
-                token={data.token!}
-              />
-            </TabsContent>
-
-            <TabsContent value="cards">
-              <CardsTab
-                devices={(data.householdDevices as any[]) ?? []}
-                token={data.token!}
               />
             </TabsContent>
 
@@ -333,6 +206,10 @@ export default function EngineeringPanel() {
                 onToggleScenarioRoom={scenarioVisibility.toggleScenarioRoom}
                 onSetAllRooms={scenarioVisibility.setScenarioAllRooms}
               />
+            </TabsContent>
+
+            <TabsContent value="widgets">
+              <WidgetsTab rooms={(data.rooms as any[]) ?? []} />
             </TabsContent>
 
             <TabsContent value="automations">
@@ -354,52 +231,7 @@ export default function EngineeringPanel() {
               )}
             </TabsContent>
 
-            <TabsContent value="logs">
-              <LogsTab
-                entries={eventLog.entries}
-                filter={eventLog.filter}
-                onFilterChange={eventLog.setFilter}
-                onClear={eventLog.clear}
-                onExport={eventLog.exportJSON}
-              />
-            </TabsContent>
-
-            <TabsContent value="network">
-              <NetworkTab
-                protocolGroups={data.protocolGroups}
-                totalDevices={data.householdDevices.length}
-              />
-            </TabsContent>
-
-            <TabsContent value="api">
-              <ApiMonitorTab
-                requests={apiMonitor.requests}
-                stats={apiMonitor.stats}
-                onClear={apiMonitor.clear}
-              />
-            </TabsContent>
-
-            <TabsContent value="performance">
-              <PerformanceTab
-                metrics={perf.metrics}
-                onRefresh={perf.refresh}
-              />
-            </TabsContent>
-
-            <TabsContent value="diagnostics">
-              <DiagnosticsTab
-                diagnostics={data.diagnostics}
-                devices={data.householdDevices as any}
-                token={data.token!}
-              />
-            </TabsContent>
           </Tabs>
-
-          <RawDataDialog
-            token={data.token!}
-            open={rawDataOpen}
-            onOpenChange={setRawDataOpen}
-          />
         </>
       )}
     </div>

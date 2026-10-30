@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 import type { CardSize, DeviceVariant } from "../types";
 import { SmartCard } from "../SmartCard";
@@ -6,6 +7,8 @@ import { SmartCardDivider } from "./SmartCardDivider";
 import { PowerPill, pillSizeFor } from "./PowerPill";
 import { CardTimerSection } from "../CardTimer";
 import { useHiddenParts } from "../card-parts";
+import { useDeviceSettingsTarget } from "../device-settings-context";
+import { DeviceSettingsDialog, hasDeviceSettings } from "../DeviceSettingsDialog";
 
 interface CardFrameProps {
   size: CardSize;
@@ -22,25 +25,19 @@ interface CardFrameProps {
   /** Header props */
   icon: string;
   name: string;
-  subtitle?: string | null;
   labelOn?: string;
   labelOff?: string;
-  headerRight?: React.ReactNode;
+  /** Показания устройства справа от имени (температура, заряд, статус уборки) */
+  metric?: React.ReactNode;
 
   /**
-   * Power pill props — pass { on, onChange, label } to show a centered round
-   * power button, or `null`/`false` to omit (e.g. curtain without on/off).
+   * Круглая кнопка по центру свободной области. Передайте `false`/`null`,
+   * если у устройства нет основного переключаемого действия.
    */
   power?: { on: boolean; onChange: (v: boolean) => void; label: string } | false | null;
 
   /** Show the timer section at the bottom */
   timer?: boolean;
-
-  /** Functional controls above the power button */
-  top?: React.ReactNode;
-
-  /** Functional controls below the power button (often wrapped in a dimming div) */
-  bottom?: React.ReactNode;
 
   /** Golden glow overlay when active (default: true) */
   glow?: boolean;
@@ -52,13 +49,11 @@ interface CardFrameProps {
 }
 
 /**
- * Единая обёртка карточки с типовым анатомическим шаблоном:
- *   1-3. Заголовок (иконка + имя + статус)
- *   4.   Разделитель
- *   5.   Верхний слот (функциональные кнопки/слайдеры или пустота)
- *   6.   Круглая кнопка вкл/выкл по центру
- *   7.   Нижний слот (остальные кнопки/слайдеры)
- *   8.   Разделитель + таймер
+ * Единая обёртка карточки:
+ *   1. Заголовок: иконка, имя + статус, показания справа
+ *   2. Разделитель
+ *   3. Круглая кнопка питания на всё свободное пространство
+ *   4. Разделитель + кнопки «Таймер» и «Настройки»
  */
 export function CardFrame({
   size,
@@ -73,22 +68,24 @@ export function CardFrame({
   alertClassName,
   icon,
   name,
-  subtitle,
   labelOn,
   labelOff,
-  headerRight,
+  metric,
   power,
   timer = false,
-  top,
-  bottom,
   glow = true,
   overlay,
   children,
 }: CardFrameProps) {
   const hiddenParts = useHiddenParts();
+  const settingsTarget = useDeviceSettingsTarget();
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const isHidden = (part: string) => hiddenParts.includes(part as any);
+  const settingsAvailable =
+    !!settingsTarget && hasDeviceSettings(settingsTarget.device);
 
   return (
+    <>
     <SmartCard
       size={size}
       variant={variant}
@@ -109,10 +106,9 @@ export function CardFrame({
               name={name}
               on={active}
               size={size}
-              subtitle={subtitle}
               labelOn={labelOn}
               labelOff={labelOff}
-              right={headerRight}
+              right={metric}
             />
 
             {/* 4: Разделитель */}
@@ -120,26 +116,24 @@ export function CardFrame({
           </>
         )}
 
-        {/* 5-7: Функциональная область */}
-        <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-1.5">
-          {!isHidden("top") && top}
-
+        {/* Круглая кнопка на всё свободное поле */}
+        <div className="flex-1 min-h-0 flex items-center justify-center p-1">
           {power && !isHidden("power") && (
-            <div className="flex justify-center shrink-0">
-              <PowerPill
-                on={power.on}
-                onChange={power.onChange}
-                label={power.label}
-                size={pillSizeFor(size)}
-              />
-            </div>
+            <PowerPill
+              on={power.on}
+              onChange={power.onChange}
+              label={power.label}
+              size={pillSizeFor(size)}
+              fill
+            />
           )}
-
-          {!isHidden("bottom") && bottom}
         </div>
 
-        {/* 8-10: Разделитель + таймер */}
-        {timer && !isHidden("timer") && <CardTimerSection />}
+        {/* Разделитель + нижний ряд: таймер и настройки */}
+        <CardTimerSection
+          showTimer={timer && !isHidden("timer")}
+          onSettings={settingsAvailable ? () => setSettingsOpen(true) : undefined}
+        />
       </div>
 
       {/* Свечение при включении */}
@@ -150,5 +144,15 @@ export function CardFrame({
       {overlay}
       {children}
     </SmartCard>
+
+    {settingsAvailable && settingsTarget && (
+      <DeviceSettingsDialog
+        device={settingsTarget.device}
+        token={settingsTarget.token}
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+      />
+    )}
+    </>
   );
 }

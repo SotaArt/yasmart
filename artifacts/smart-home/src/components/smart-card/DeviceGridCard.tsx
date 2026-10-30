@@ -5,6 +5,7 @@ import type { TileSize } from "@/hooks/use-panel-config";
 import type { DeviceTimer } from "@/hooks/use-panel-config";
 import { CardTimerProvider } from "./CardTimer";
 import { CardPartsProvider, type CardPartId } from "./card-parts";
+import { DeviceSettingsProvider } from "./device-settings-context";
 import { LightCard } from "./LightCard";
 import { SwitchCard } from "./SwitchCard";
 import { SocketCard } from "./SocketCard";
@@ -128,20 +129,22 @@ export function DeviceGridCard({ device, token, size, timers = [], onAddTimer, o
 
   return (
     <div className="relative h-full w-full min-h-0">
-      <CardPartsProvider hiddenParts={hiddenParts}>
-        <CardTimerProvider
-          value={{
-            deviceId: device.id,
-            deviceName: device.name,
-            timers,
-            size,
-            onAddTimer: (action, delayMs) => onAddTimer?.(device.id, device.name, action, delayMs),
-            onCancelTimer: (id) => onCancelTimer?.(id),
-          }}
-        >
-          {card}
-        </CardTimerProvider>
-      </CardPartsProvider>
+      <DeviceSettingsProvider device={device} token={token}>
+        <CardPartsProvider hiddenParts={hiddenParts}>
+          <CardTimerProvider
+            value={{
+              deviceId: device.id,
+              deviceName: device.name,
+              timers,
+              size,
+              onAddTimer: (action, delayMs) => onAddTimer?.(device.id, device.name, action, delayMs),
+              onCancelTimer: (id) => onCancelTimer?.(id),
+            }}
+          >
+            {card}
+          </CardTimerProvider>
+        </CardPartsProvider>
+      </DeviceSettingsProvider>
     </div>
   );
 }

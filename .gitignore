@@ -60,3 +60,6 @@ yandex-export*.json
 # Runtime data (may contain the scenario-engine token and user images)
 data/
 artifacts/api-server/data/
+
+# Local VPS/deploy notes and secrets
+/Калмыков/

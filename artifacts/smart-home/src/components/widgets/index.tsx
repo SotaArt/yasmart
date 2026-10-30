@@ -97,7 +97,7 @@ export function WidgetSettingsEditor({ config, onChange, uploadedImages = [] }: 
             <label className="text-xs text-muted-foreground mb-1 block">Фотографии</label>
             {uploadedImages.length === 0 ? (
               <p className="text-[10px] text-muted-foreground/70">
-                Сначала загрузите изображения в разделе «Фон комнаты».
+                Загрузите изображения кнопкой «Загрузить фотографии» ниже.
               </p>
             ) : (
               <div className="grid grid-cols-4 gap-1 max-h-24 overflow-y-auto">

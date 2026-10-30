@@ -223,7 +223,36 @@ export function getDeviceTypeLabel(type: string): string {
   return lookupByPrefix(type, DEVICE_TYPE_LABELS, type.split(".").pop() ?? type);
 }
 
-export function getDeviceIcon(type: string): string {
+const DEVICE_ICON_OVERRIDES_KEY = "eng_device_icon_overrides_v1";
+
+export function loadDeviceIconOverrides(): Record<string, string> {
+  try {
+    return JSON.parse(localStorage.getItem(DEVICE_ICON_OVERRIDES_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+export function saveDeviceIconOverrides(overrides: Record<string, string>) {
+  localStorage.setItem(DEVICE_ICON_OVERRIDES_KEY, JSON.stringify(overrides));
+}
+
+export function setDeviceIconOverride(deviceId: string, icon: string | null) {
+  const overrides = loadDeviceIconOverrides();
+  if (icon) {
+    overrides[deviceId] = icon;
+  } else {
+    delete overrides[deviceId];
+  }
+  saveDeviceIconOverrides(overrides);
+}
+
+export function getDeviceIcon(type: string, deviceId?: string): string {
+  if (deviceId) {
+    const overrides = loadDeviceIconOverrides();
+    const custom = overrides[deviceId];
+    if (custom) return custom;
+  }
   return lookupByPrefix(type, DEVICE_ICONS, DEVICE_ICONS["default"]);
 }
 

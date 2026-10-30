@@ -1,0 +1,29 @@
+{
+  "id": "./app?mode=user",
+  "name": "Умный дом — ЮП",
+  "short_name": "ЮП",
+  "description": "Пользовательская панель умного дома Яндекс",
+  "lang": "ru",
+  "start_url": "./app?mode=user",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "background_color": "#0a0a0b",
+  "theme_color": "#0a0a0b",
+  "orientation": "any",
+  "categories": ["smart home", "utilities"],
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

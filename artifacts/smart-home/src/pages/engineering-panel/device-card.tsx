@@ -16,20 +16,16 @@ import {
   getDeviceIcon,
   getDeviceTypeLabel,
   getDeviceStatus,
-  hasToggle,
-  isAcDevice,
   getDeviceCapability,
-  getAcMode,
-  getAcModeOptions,
-  getAcTemperature,
-  getAcFanSpeed,
   AC_MODE_LABELS,
   getSignalInfo,
+  setDeviceIconOverride,
+  getSensorReadings,
   type Device,
+  type DeviceCapability,
   type Room,
 } from "@/lib/yandex";
-import { Pin, PinOff, ChevronDown, Settings, Wifi, WifiOff, Radio, Power, Wrench, ChevronRight, MapPin, Eye, EyeOff, Star, Activity, Info, ArrowLeftRight } from "lucide-react";
-import { logAction } from "./hooks/event-log";
+import { Pin, PinOff, ChevronDown, Settings, Wifi, WifiOff, Radio, Power, ChevronRight, MapPin, Eye, EyeOff, Star, Activity, SlidersHorizontal, ArrowLeftRight, Image as ImageIcon, X } from "lucide-react";
 import { useDeviceVisibility } from "@/hooks/use-device-visibility";
 import { useSensorDevices } from "@/hooks/use-sensor-devices";
 import { useSensorInversions } from "@/hooks/use-sensor-inversions";
@@ -97,30 +93,146 @@ export function useDeviceOverrides() {
   return { overrides, updateOverride, getDisplayName, getRoomOverride, isHidden };
 }
 
-/* ─── Signal strength helper ─── */
-
-/* ─── Capability type labels ─── */
-const CAP_TYPE_LABELS: Record<string, string> = {
-  "devices.capabilities.on_off": "Вкл/Выкл",
-  "devices.capabilities.mode": "Режим",
-  "devices.capabilities.range": "Диапазон",
-  "devices.capabilities.toggle": "Переключатель",
-  "devices.capabilities.color_setting": "Цвет",
+/* ─── Control labels ─── */
+const RANGE_LABELS: Record<string, { label: string; unit?: string; step?: number }> = {
+  brightness: { label: "Яркость", unit: "%" },
+  temperature: { label: "Температура", unit: "°C" },
+  color_temperature: { label: "Цветовая температура", unit: "K", step: 100 },
+  fan_speed: { label: "Скорость вентиляции" },
+  work_speed: { label: "Скорость вентиляции" },
+  open: { label: "Открытие", unit: "%" },
+  humidity: { label: "Влажность", unit: "%" },
+  volume: { label: "Громкость", unit: "%" },
+  channel: { label: "Канал" },
+  camera_pan: { label: "Поворот камеры" },
+  camera_tilt: { label: "Наклон камеры" },
 };
 
-const CAP_INSTANCE_LABELS: Record<string, string> = {
-  on: "Включение",
-  brightness: "Яркость",
-  temperature: "Температура",
-  thermostat: "Термостат",
-  fan_speed: "Вентилятор",
+const MODE_TITLES: Record<string, string> = {
+  thermostat: "Режим",
+  fan_speed: "Скорость вентиляции",
+  work_speed: "Скорость вентиляции",
+  swing: "Качание",
+  program: "Программа",
+  clean: "Очистка",
+  humidity: "Влажность",
+  video_resolution: "Разрешение видео",
+};
+
+const MODE_VALUE_LABELS: Record<string, Record<string, string>> = {
+  fan_speed: { auto: "Авто", low: "Слабо", medium: "Средне", high: "Сильно", quiet: "Тихо", turbo: "Турбо" },
+  work_speed: { auto: "Авто", low: "Слабо", medium: "Средне", high: "Сильно", quiet: "Тихо", turbo: "Турбо" },
+  swing: { auto: "Авто", stop: "Стоп", low: "Слабо", medium: "Средне", high: "Сильно", vertical: "Вертикально", horizontal: "Горизонтально" },
+  program: { auto: "Авто", manual: "Ручной", eco: "Эко", comfort: "Комфорт", sleep: "Сон" },
+  video_resolution: {
+    video_resolution_auto: "Авто",
+    video_resolution_1440: "1440p",
+    video_resolution_1080: "1080p",
+    video_resolution_720: "720p",
+    video_resolution_480: "480p",
+  },
+};
+
+const TOGGLE_LABELS: Record<string, string> = {
   swing: "Качание",
   night_mode: "Ночной режим",
-  color_temperature: "Цветовая температура",
-  scene: "Сцена",
-  hue: "Оттенок",
-  saturation: "Насыщенность",
+  ionizer: "Ионизация",
+  oscillation: "Колебание",
+  mute: "Без звука",
+  child_lock: "Защита от детей",
+  backlight: "Подсветка",
+  keep_warm: "Поддержание тепла",
+  anti_freeze: "Защита от заморозки",
+  water_ionizer: "Ионизация воды",
+  camera_sw_mute: "Без звука",
+  camera_sw_night_mode: "Ночной режим",
 };
+
+const RGB_PRESETS: { r: number; g: number; b: number; label: string }[] = [
+  { r: 255, g: 255, b: 255, label: "Белый" },
+  { r: 255, g: 0, b: 0, label: "Красный" },
+  { r: 255, g: 165, b: 0, label: "Оранжевый" },
+  { r: 255, g: 255, b: 0, label: "Жёлтый" },
+  { r: 0, g: 255, b: 0, label: "Зелёный" },
+  { r: 0, g: 200, b: 255, label: "Голубой" },
+  { r: 0, g: 0, b: 255, label: "Синий" },
+  { r: 128, g: 0, b: 255, label: "Фиолетовый" },
+  { r: 255, g: 0, b: 200, label: "Розовый" },
+];
+
+function capabilityInstance(cap: DeviceCapability): string {
+  return (cap.state?.instance ?? cap.parameters?.instance ?? "") as string;
+}
+
+function getModeValues(cap: DeviceCapability): string[] {
+  const modes = cap.parameters?.modes;
+  if (!Array.isArray(modes)) return [];
+  return modes.map((m) => (typeof m === "string" ? m : m?.value)).filter(Boolean);
+}
+
+function getRangeBounds(cap: DeviceCapability) {
+  const min = Number(cap.parameters?.min_value ?? 0);
+  const max = Number(cap.parameters?.max_value ?? 100);
+  const instance = capabilityInstance(cap);
+  return {
+    min,
+    max: max > min ? max : min + 100,
+    step: RANGE_LABELS[instance]?.step ?? 1,
+  };
+}
+
+function formatRangeValue(instance: string, value: unknown): string {
+  if (value === undefined || value === null) return "—";
+  const unit = RANGE_LABELS[instance]?.unit ?? "";
+  return `${value}${unit}`;
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  return "#" + [r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("");
+}
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const value = hex.replace("#", "");
+  return {
+    r: parseInt(value.slice(0, 2), 16) || 0,
+    g: parseInt(value.slice(2, 4), 16) || 0,
+    b: parseInt(value.slice(4, 6), 16) || 0,
+  };
+}
+
+function rgbToHsv(r: number, g: number, b: number): { h: number; s: number; v: number } {
+  const rr = r / 255, gg = g / 255, bb = b / 255;
+  const max = Math.max(rr, gg, bb), min = Math.min(rr, gg, bb);
+  const d = max - min;
+  let h = 0;
+  if (d !== 0) {
+    if (max === rr) h = ((gg - bb) / d) % 6;
+    else if (max === gg) h = (bb - rr) / d + 2;
+    else h = (rr - gg) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+  return { h: Math.round(h), s: Math.round((max === 0 ? 0 : d / max) * 100), v: Math.round(max * 100) };
+}
+
+function hsvToRgb(h: number, s: number, v: number): { r: number; g: number; b: number } {
+  const ss = s / 100, vv = v / 100;
+  const c = vv * ss;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = vv - c;
+  let r = 0, g = 0, b = 0;
+  if (h < 60) [r, g, b] = [c, x, 0];
+  else if (h < 120) [r, g, b] = [x, c, 0];
+  else if (h < 180) [r, g, b] = [0, c, x];
+  else if (h < 240) [r, g, b] = [0, x, c];
+  else if (h < 300) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+  return {
+    r: Math.round((r + m) * 255),
+    g: Math.round((g + m) * 255),
+    b: Math.round((b + m) * 255),
+  };
+}
 
 const PROP_INSTANCE_LABELS: Record<string, string> = {
   temperature: "Температура",
@@ -147,11 +259,11 @@ interface DeviceCardProps {
   rooms: Room[];
   hideOffline: boolean;
   displayName?: string;
-  onHide?: (id: string) => void;
   onShowDetail?: (device: Device) => void;
   onShowSettings?: (device: Device) => void;
   isFeatured?: boolean;
   onToggleFeatured?: () => void;
+  reorder?: React.ReactNode;
 }
 
 /* ─── Main component ─── */
@@ -161,43 +273,28 @@ export function DeviceCard({
   rooms,
   hideOffline,
   displayName,
-  onHide,
   onShowDetail,
   onShowSettings,
   isFeatured,
   onToggleFeatured,
+  reorder,
 }: DeviceCardProps) {
-  const queryClient = useQueryClient();
-  const controlDevice = useDeviceControl(token);
   const { isDeviceVisible, setDeviceVisible } = useDeviceVisibility();
   const { isSensorOnly, setSensorOnly } = useSensorDevices();
-  const { isInverted, toggleInverted } = useSensorInversions();
   const { isPinnedSensor: isPinned, setPinned } = usePinnedSensors();
-  const [showDetails, setShowDetails] = useState(false);
 
   const status = getDeviceStatus(device);
-  const canToggle = hasToggle(device);
-  const isAc = isAcDevice(device);
-  const isOn = status.type === "on";
-  const icon = getDeviceIcon(device.type);
+  const [customIcon, setCustomIcon] = useState<string | null>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("eng_device_icon_overrides_v1") || "{}")[device.id] ?? null;
+    } catch {
+      return null;
+    }
+  });
+  const icon = customIcon || getDeviceIcon(device.type);
   const signal = getSignalInfo(device);
-
-  const brightnessCap = getDeviceCapability(device, "devices.capabilities.range", "brightness");
-  const brightness = brightnessCap?.state?.value as number | undefined;
-
-  const capabilityCount = device.capabilities?.length ?? 0;
-  const propertyCount = device.properties?.length ?? 0;
-
-  const hasExtra = !!(
-    device.device_info?.hw_version ||
-    device.device_info?.sw_version ||
-    device.device_info?.serial ||
-    device.device_info?.device_id ||
-    device.external_id ||
-    device.skill_id ||
-    (device.aliases?.length ?? 0) > 0 ||
-    (device.groups?.length ?? 0) > 0
-  );
+  const readings = getSensorReadings(device);
+  const [sensorExpanded, setSensorExpanded] = useState(false);
 
   if (hideOffline && status.type === "off") return null;
 
@@ -205,54 +302,6 @@ export function DeviceCard({
   const room = rooms.find((r) => r.id === device.room_id);
   const brand = device.device_info?.manufacturer ?? "—";
   const model = device.device_info?.model;
-
-  const toggle = () => {
-    if (!canToggle) return;
-    logAction({
-      type: "command_sent",
-      deviceId: device.id,
-      deviceName: device.name,
-      message: `${isOn ? "Выключение" : "Включение"} устройства "${name}"`,
-    });
-    controlDevice.mutate(
-      {
-        deviceId: device.id,
-        data: { actions: [{ type: "devices.capabilities.on_off", state: { instance: "on", value: !isOn } }] },
-      },
-      {
-        onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getUserInfoKey(token) });
-          logAction({
-            type: "command_result",
-            deviceId: device.id,
-            deviceName: device.name,
-            message: `Устройство "${name}" ${!isOn ? "включено" : "выключено"}`,
-          });
-        },
-        onError: (err) => {
-          logAction({
-            type: "command_result",
-            deviceId: device.id,
-            deviceName: device.name,
-            message: `Ошибка: ${err.message}`,
-          });
-        },
-      }
-    );
-  };
-
-  const setBrightness = (val: number[]) => {
-    logAction({
-      type: "command_sent",
-      deviceId: device.id,
-      deviceName: device.name,
-      message: `Установка яркости ${val[0]}% на "${name}"`,
-    });
-    controlDevice.mutate({
-      deviceId: device.id,
-      data: { actions: [{ type: "devices.capabilities.range", state: { instance: "brightness", value: val[0] } }] },
-    });
-  };
 
   return (
     <div
@@ -263,31 +312,68 @@ export function DeviceCard({
     >
       {/* ── Header: Icon + Name ── */}
       <div className="p-3 pb-0">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <span className="text-2xl flex-shrink-0" role="img">{icon}</span>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold leading-tight text-foreground truncate">{name}</p>
-              <div className="mt-0.5">
-                <DeviceStatusBadge status={status.type} />
-              </div>
+        <div className="flex items-start gap-2.5 min-w-0">
+          <span className="text-2xl flex-shrink-0 flex items-center justify-center w-8 h-8" role="img">
+            {icon.startsWith("data:") ? <img src={icon} alt="" className="w-6 h-6 object-contain" /> : icon}
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold leading-tight text-foreground truncate">{name}</p>
+            <div className="mt-0.5">
+              <DeviceStatusBadge status={status.type} />
             </div>
           </div>
-          {/* Actions */}
-          <div className="flex items-center gap-1 flex-shrink-0">
-            {canToggle && (
+        </div>
+      </div>
+
+      {/* ── Action row ── */}
+      <div className="px-3 pt-2">
+        <div className="flex items-center gap-1 flex-wrap border-t border-border/30 pt-2">
+            {reorder}
+            <button
+              onClick={() => {
+                const input = document.createElement("input");
+                input.type = "file";
+                input.accept = "image/*";
+                input.onchange = (e: any) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = () => {
+                    const result = reader.result as string;
+                    const img = new Image();
+                    img.onload = () => {
+                      const canvas = document.createElement("canvas");
+                      const max = 128;
+                      const scale = Math.min(max / img.width, max / img.height, 1);
+                      canvas.width = Math.round(img.width * scale);
+                      canvas.height = Math.round(img.height * scale);
+                      const ctx = canvas.getContext("2d");
+                      ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+                      const compressed = canvas.toDataURL("image/png");
+                      setDeviceIconOverride(device.id, compressed);
+                      setCustomIcon(compressed);
+                    };
+                    img.src = result;
+                  };
+                  reader.readAsDataURL(file);
+                };
+                input.click();
+              }}
+              className="p-1.5 rounded-md bg-muted/50 hover:bg-primary/20 hover:text-primary text-muted-foreground flex items-center justify-center transition-colors"
+              title="Загрузить иконку (PNG/JPG)"
+            >
+              <ImageIcon className="w-3.5 h-3.5" />
+            </button>
+            {customIcon && (
               <button
-                onClick={toggle}
-                disabled={controlDevice.isPending}
-                className={`p-1.5 rounded-md border transition-colors ${
-                  isOn
-                    ? "border-[hsl(var(--gold))]/50 text-[hsl(var(--gold))] hover:bg-[hsl(var(--gold))]/10"
-                    : "border-border text-muted-foreground hover:bg-accent"
-                }`}
-                title={isOn ? "Выключить" : "Включить"}
-                data-testid={`button-toggle-${device.id}`}
+                onClick={() => {
+                  setDeviceIconOverride(device.id, null);
+                  setCustomIcon(null);
+                }}
+                className="p-1.5 rounded-md bg-muted/50 hover:bg-destructive/20 hover:text-destructive text-muted-foreground flex items-center justify-center transition-colors"
+                title="Сбросить иконку"
               >
-                <Power className="w-3.5 h-3.5" />
+                <X className="w-3.5 h-3.5" />
               </button>
             )}
             {/* Звёздочка — главная карточка в юзер-панели */}
@@ -311,7 +397,7 @@ export function DeviceCard({
                   ? "bg-[hsl(var(--gold))]/10 text-[hsl(var(--gold))] hover:bg-[hsl(var(--gold))]/20 border border-[hsl(var(--gold))]/30"
                   : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground border border-border"
               }`}
-              title={isDeviceVisible(device.id) ? "Видна в юзер-панели" : "Скрыта в юзер-панели"}
+              title={isDeviceVisible(device.id) ? "Показывать в ЮП и МП" : "Скрыто в ЮП и МП"}
             >
               {isDeviceVisible(device.id) ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
             </button>
@@ -322,7 +408,7 @@ export function DeviceCard({
                   ? "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 border border-blue-500/30"
                   : "bg-muted/50 text-muted-foreground hover:bg-blue-500/10 hover:text-blue-400 border border-border"
               }`}
-              title={isSensorOnly(device.id) ? "Датчик — не в сетке, данные в InfoPanel" : "Пометить как датчик"}
+              title={isSensorOnly(device.id) ? "Датчик — данные только в InfoPanel" : "Пометить как датчик"}
             >
               <Activity className="w-3.5 h-3.5" />
             </button>
@@ -348,7 +434,6 @@ export function DeviceCard({
             )}
             {device.type === "devices.types.camera" && <CameraStreamDialog device={device} />}
             <DeviceDetailsDialog device={device} token={token} />
-          </div>
         </div>
       </div>
 
@@ -402,141 +487,46 @@ export function DeviceCard({
       </div>
 
       {/* ── Sensor readings ── */}
-      <div className="px-3 pb-2">
-        <SensorReadingsInline device={device} />
-      </div>
-
-      {/* ── AC Controls ── */}
-      {isAc && isOn && (
-        <div className="px-3 pb-2">
-          <AcControls device={device} token={token} />
-        </div>
-      )}
-
-      {/* ── Brightness ── */}
-      {brightnessCap && isOn && brightness !== undefined && !isAc && (
-        <div className="px-3 pb-2">
-          <p className="text-[10px] text-muted-foreground mb-1">Яркость: {brightness}%</p>
-          <Slider
-            value={[brightness]}
-            onValueCommit={setBrightness}
-            min={0}
-            max={100}
-            step={1}
-            className="w-full"
-          />
-        </div>
-      )}
+      {Object.keys(readings).length > 0 ? (
+        <Collapsible open={sensorExpanded} onOpenChange={setSensorExpanded}>
+          <CollapsibleTrigger asChild>
+            <button className="w-full flex items-center justify-between px-3 py-2 text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors border-t border-border/30">
+              <span className="flex items-center gap-1.5">
+                <Activity className="w-3 h-3" />
+                Показания датчика
+              </span>
+              {sensorExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="px-3 pt-2 pb-2">
+              <SensorReadingsInline device={device} />
+              <div className="mt-2 space-y-1">
+                {readings.temperature !== undefined && <SensorRow label="Температура" value={`${readings.temperature.toFixed(1)} °C`} />}
+                {readings.humidity !== undefined && <SensorRow label="Влажность" value={`${Math.round(readings.humidity)} %`} />}
+                {readings.illumination !== undefined && <SensorRow label="Освещённость" value={`${readings.illumination} лк`} />}
+                {readings.pm25 !== undefined && <SensorRow label="PM2.5" value={`${Math.round(readings.pm25)} мкг/м³`} />}
+                {readings.co2 !== undefined && <SensorRow label="CO₂" value={`${Math.round(readings.co2)} ppm`} />}
+                {readings.battery !== undefined && <SensorRow label="Батарея" value={`${Math.round(readings.battery)} %`} />}
+                {readings.motion !== undefined && <SensorRow label="Движение" value={readings.motion ? "Обнаружено" : "Нет"} />}
+                {readings.open !== undefined && <SensorRow label="Открытие" value={readings.open ? "Открыто" : "Закрыто"} />}
+                {readings.presence !== undefined && <SensorRow label="Присутствие" value={readings.presence ? "Есть" : "Нет"} />}
+                {readings.vibration !== undefined && <SensorRow label="Вибрация" value={readings.vibration ? "Обнаружена" : "Нет"} />}
+                {readings.water_leak !== undefined && <SensorRow label="Протечка" value={readings.water_leak ? "Да" : "Нет"} />}
+                {readings.smoke !== undefined && <SensorRow label="Дым" value={readings.smoke ? "Обнаружен" : "Нет"} />}
+                {readings.gas !== undefined && <SensorRow label="Газ" value={readings.gas ? "Обнаружен" : "Нет"} />}
+              </div>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      ) : null}
 
       {/* ── ID ── */}
       <div className="px-3 pb-2">
         <CopyableId id={device.id} />
       </div>
 
-      {/* ── Тех. данные: доп. инфо + функции + свойства (одна сворачиваемая секция) ── */}
-      {(hasExtra || capabilityCount > 0 || propertyCount > 0) && (
-        <Collapsible open={showDetails} onOpenChange={setShowDetails}>
-          <CollapsibleTrigger asChild>
-            <button className="w-full flex items-center justify-between px-3 py-2 text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors border-t border-border/30">
-              <span className="flex items-center gap-1.5">
-                <Info className="w-3 h-3" />
-                Тех. данные и функции
-              </span>
-              {showDetails ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-            </button>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            {hasExtra && (
-              <div className="px-3 pt-2 space-y-1">
-                {device.device_info?.hw_version && <ExtraRow label="HW версия" value={device.device_info.hw_version} mono />}
-                {device.device_info?.sw_version && <ExtraRow label="SW версия" value={device.device_info.sw_version} mono />}
-                {device.device_info?.serial && <ExtraRow label="Серийник" value={device.device_info.serial} mono />}
-                {device.device_info?.device_id && <ExtraRow label="Device ID" value={device.device_info.device_id} mono />}
-                {device.external_id && <ExtraRow label="External ID" value={device.external_id} mono />}
-                {device.skill_id && <ExtraRow label="Skill ID" value={device.skill_id} mono />}
-                {device.household_id && <ExtraRow label="Объект (household)" value={device.household_id} mono />}
-                {(device.aliases?.length ?? 0) > 0 && <ExtraRow label="Алиасы" value={device.aliases!.join(", ")} />}
-                {(device.groups?.length ?? 0) > 0 && <ExtraRow label="Группы" value={device.groups!.join(", ")} />}
-              </div>
-            )}
-
-            {capabilityCount > 0 && (
-              <>
-                <p className="flex items-center gap-1.5 px-3 pt-3 pb-1 text-[10px] text-muted-foreground uppercase tracking-wider">
-                  <Wrench className="w-3 h-3" /> Функции ({capabilityCount})
-                </p>
-                <div className="px-3 pb-1 space-y-1">
-                  {device.capabilities?.map((cap, i) => {
-                    const typeLabel = CAP_TYPE_LABELS[cap.type] ?? cap.type.split(".").pop();
-                    const instLabel = cap.state?.instance
-                      ? (CAP_INSTANCE_LABELS[cap.state.instance] ?? cap.state.instance)
-                      : "";
-                    return (
-                      <div key={i} className="flex items-center justify-between py-1 text-[10px]">
-                        <span className="text-muted-foreground truncate">
-                          {typeLabel}
-                          {instLabel && <span className="ml-1 opacity-70">· {instLabel}</span>}
-                        </span>
-                        <span className="font-mono text-foreground ml-2">
-                          {cap.state?.value !== undefined ? String(cap.state.value) : "—"}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-
-            {propertyCount > 0 && (
-              <>
-                <p className="flex items-center gap-1.5 px-3 pt-3 pb-1 text-[10px] text-muted-foreground uppercase tracking-wider">
-                  <Radio className="w-3 h-3" /> Свойства ({propertyCount})
-                </p>
-                <div className="px-3 pb-2 space-y-1">
-                  {device.properties?.map((prop, i) => {
-                    const instLabel = prop.parameters?.instance
-                      ? (PROP_INSTANCE_LABELS[prop.parameters.instance] ?? prop.parameters.instance)
-                      : "";
-                    const instance = prop.parameters?.instance;
-                    const invertible =
-                      typeof prop.state?.value === "boolean" &&
-                      instance !== undefined &&
-                      (INVERTIBLE_INSTANCES as readonly string[]).includes(instance);
-                    return (
-                      <div key={i} className="flex items-center justify-between py-1 text-[10px]">
-                        <span className="text-muted-foreground truncate">
-                          {instLabel || prop.type.split(".").pop()}
-                        </span>
-                        <span className="flex items-center gap-1.5 ml-2 flex-shrink-0">
-                          {invertible && (
-                            <button
-                              onClick={() => toggleInverted(device.id, instance as InvertibleInstance)}
-                              title={
-                                isInverted(device.id, instance as InvertibleInstance)
-                                  ? "Инверсия включена (значение перевёрнуто)" : "Инверсия выключена"
-                              }
-                              className={`p-0.5 rounded border transition-colors flex items-center justify-center ${
-                                isInverted(device.id, instance as InvertibleInstance)
-                                  ? "border-[hsl(var(--gold))]/50 text-[hsl(var(--gold))]"
-                                  : "border-border/40 text-muted-foreground hover:border-border hover:text-foreground"
-                              }`}
-                            >
-                              <ArrowLeftRight className="w-3 h-3" />
-                            </button>
-                          )}
-                          <span className="font-mono text-foreground">
-                            {prop.state?.value !== undefined ? String(prop.state.value) : "—"}
-                          </span>
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-          </CollapsibleContent>
-        </Collapsible>
-      )}
+      <DeviceControls device={device} token={token} />
     </div>
   );
 }
@@ -545,116 +535,346 @@ export function DeviceCard({
 function useDeviceControl(token: string) {
   return useControlDevice({
     request: { headers: { "x-yandex-token": token } },
-  });
+  }  );
 }
 
-/* ─── Extra info row ─── */
-function ExtraRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function SensorRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-2 py-0.5 text-[10px]">
-      <span className="text-muted-foreground shrink-0">{label}</span>
-      <span className={`text-foreground text-right truncate ${mono ? "font-mono" : ""}`}>{value}</span>
+    <div className="flex items-center justify-between py-0.5 text-[10px]">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-mono text-foreground">{value}</span>
     </div>
   );
 }
 
-/* ─── AC Controls (inline) ─── */
-function AcControls({ device, token }: { device: Device; token: string }) {
+/* ─── Device controls (capability-based) ─── */
+function DeviceControls({ device, token }: { device: Device; token: string }) {
   const queryClient = useQueryClient();
   const controlDevice = useDeviceControl(token);
+  const { isInverted, toggleInverted } = useSensorInversions();
+  const [open, setOpen] = useState(false);
 
-  const mode = getAcMode(device);
-  const modeOptions = getAcModeOptions(device);
-  const tempInfo = getAcTemperature(device);
-  const fanInfo = getAcFanSpeed(device);
-  const swingCap = getDeviceCapability(device, "devices.capabilities.toggle", "swing");
+  const capabilities = device.capabilities ?? [];
+  const powerCap = getDeviceCapability(device, "devices.capabilities.on_off");
+  const rangeCaps = capabilities.filter((cap) => cap.type === "devices.capabilities.range");
+  const rangeInstances = new Set(rangeCaps.map(capabilityInstance));
+  const modeCaps = capabilities.filter(
+    (cap) => cap.type === "devices.capabilities.mode" && !rangeInstances.has(capabilityInstance(cap))
+  );
+  const toggleCaps = capabilities.filter((cap) => cap.type === "devices.capabilities.toggle");
+  const colorCap = capabilities.find((cap) => cap.type === "devices.capabilities.color_setting");
+  const colorTempRange = getDeviceCapability(device, "devices.capabilities.range", "color_temperature");
+  const colorTempKParams = (colorCap?.parameters as any)?.temperature_k as
+    | { min?: number; max?: number }
+    | undefined;
+  const colorInstance = colorCap ? capabilityInstance(colorCap) : "";
+  const colorModel = (colorCap?.parameters as any)?.color_model as string | undefined;
+  const hasColorTempK = !!(
+    colorCap &&
+    !colorTempRange &&
+    (colorInstance === "temperature_k" || colorTempKParams)
+  );
+  const showColorPresets = !!(
+    colorCap &&
+    (colorInstance === "hsv" ||
+      colorInstance === "rgb" ||
+      colorModel === "hsv" ||
+      colorModel === "rgb")
+  );
+  const showColorTempK = hasColorTempK && !showColorPresets;
 
-  const send = (actions: any[], label: string) => {
-    logAction({
-      type: "command_sent",
-      deviceId: device.id,
-      deviceName: device.name,
-      message: `${label} на "${device.name}"`,
-    });
+  const invertibleProps = (device.properties ?? []).filter((prop) => {
+    const instance = prop.parameters?.instance;
+    return (
+      typeof prop.state?.value === "boolean" &&
+      instance !== undefined &&
+      (INVERTIBLE_INSTANCES as readonly string[]).includes(instance)
+    );
+  });
+
+  const hasControls =
+    !!powerCap ||
+    rangeCaps.length > 0 ||
+    modeCaps.length > 0 ||
+    toggleCaps.length > 0 ||
+    showColorPresets ||
+    showColorTempK;
+  const hasAnything = hasControls || invertibleProps.length > 0;
+
+  const send = (type: string, instance: string, value: unknown) => {
     controlDevice.mutate(
-      { deviceId: device.id, data: { actions } },
+      { deviceId: device.id, data: { actions: [{ type, state: { instance, value } }] } },
       { onSuccess: () => queryClient.invalidateQueries({ queryKey: getUserInfoKey(token) }) }
     );
   };
 
+  const sendColor = (r: number, g: number, b: number) => {
+    if (!colorCap) return;
+    if (colorInstance === "rgb" || colorModel === "rgb") {
+      send("devices.capabilities.color_setting", "rgb", { r, g, b });
+    } else {
+      send("devices.capabilities.color_setting", "hsv", rgbToHsv(r, g, b));
+    }
+  };
+
+  if (!hasAnything) return null;
+
+  const isOn = powerCap?.state?.value === true;
+  const currentColorState = colorCap?.state?.instance === "rgb" ? colorCap.state?.value : undefined;
+  const currentRgb = currentColorState && typeof currentColorState === "object"
+    ? {
+        r: Number((currentColorState as any).r ?? 255),
+        g: Number((currentColorState as any).g ?? 255),
+        b: Number((currentColorState as any).b ?? 255),
+      }
+    : undefined;
+  const currentHsv = colorCap?.state?.instance === "hsv" && colorCap.state?.value
+    ? colorCap.state.value as { h?: number; s?: number; v?: number }
+    : currentRgb
+      ? rgbToHsv(currentRgb.r, currentRgb.g, currentRgb.b)
+      : undefined;
+  const colorTempKValue = Number(colorCap?.state?.value ?? 0);
+  const colorTempKMin = Number(colorTempKParams?.min ?? 2700);
+  const colorTempKMax = Number(colorTempKParams?.max ?? 6500);
+  const currentHex = currentRgb
+    ? rgbToHex(currentRgb.r, currentRgb.g, currentRgb.b)
+    : currentHsv
+      ? (() => {
+          const rgb = hsvToRgb(currentHsv.h ?? 0, currentHsv.s ?? 0, currentHsv.v ?? 0);
+          return rgbToHex(rgb.r, rgb.g, rgb.b);
+        })()
+      : "#ffffff";
+
   return (
-    <div className="space-y-2">
-      {modeOptions.length > 0 && (
-        <div>
-          <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">Режим</p>
-          <div className="flex flex-wrap gap-1">
-            {modeOptions.map((m) => {
-              const info = AC_MODE_LABELS[m] ?? { emoji: "⚙️", label: m };
-              return (
-                <button
-                  key={m}
-                  onClick={() => send([{ type: "devices.capabilities.mode", state: { instance: "thermostat", value: m } }], `Смена режима на "${info.label}"`)}
-                  disabled={controlDevice.isPending}
-                  className={`text-[10px] px-2 py-1 rounded-md border transition-colors flex items-center gap-1 ${
-                    mode === m
-                      ? "border-primary text-primary bg-primary/20"
-                      : "border-border/50 text-muted-foreground hover:border-border hover:text-foreground"
-                  }`}
-                >
-                  <span>{info.emoji}</span>
-                  <span>{info.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {tempInfo.value !== undefined && tempInfo.min !== undefined && tempInfo.max !== undefined && (
-        <div>
-          <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">
-            Температура: <span className="text-foreground font-mono font-semibold">{tempInfo.value}°C</span>
-          </p>
-          <Slider
-            value={[tempInfo.value]}
-            onValueCommit={(v) => send([{ type: "devices.capabilities.range", state: { instance: "temperature", value: v[0] } }], `Установка температуры ${v[0]}°C`)}
-            min={tempInfo.min}
-            max={tempInfo.max}
-            step={1}
-            className="w-full"
-          />
-        </div>
-      )}
-
-      {fanInfo.value !== undefined && fanInfo.min !== undefined && fanInfo.max !== undefined && (
-        <div>
-          <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">
-            Вентилятор: <span className="text-foreground font-mono font-semibold">{fanInfo.value}</span>
-          </p>
-          <Slider
-            value={[fanInfo.value]}
-            onValueCommit={(v) => send([{ type: "devices.capabilities.range", state: { instance: "fan_speed", value: v[0] } }], `Установка скорости вентилятора ${v[0]}`)}
-            min={fanInfo.min}
-            max={fanInfo.max}
-            step={1}
-            className="w-full"
-          />
-        </div>
-      )}
-
-      {swingCap && (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger asChild>
         <button
-          onClick={() => send([{ type: "devices.capabilities.toggle", state: { instance: "swing", value: !swingCap.state?.value } }], `Качание ${swingCap.state?.value ? "выкл" : "вкл"}`)}
-          disabled={controlDevice.isPending}
-          className={`text-[10px] px-2 py-1 rounded-md border transition-colors ${
-            swingCap.state?.value
-              ? "border-primary/50 text-primary bg-primary/10"
-              : "border-border/50 text-muted-foreground hover:border-border"
-          }`}
+          className="w-full flex items-center justify-between px-3 py-2 text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors border-t border-border/30"
+          data-testid={`controls-trigger-${device.id}`}
         >
-          🔀 Качание {swingCap.state?.value ? "вкл" : "выкл"}
+          <span className="flex items-center gap-1.5">
+            <SlidersHorizontal className="w-3 h-3" />
+            Управление
+          </span>
+          {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
         </button>
-      )}
-    </div>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="px-3 pt-2 pb-3 space-y-3" data-testid={`controls-${device.id}`}>
+          {powerCap && (
+            <button
+              onClick={() => send("devices.capabilities.on_off", "on", !isOn)}
+              disabled={controlDevice.isPending}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border transition-colors ${
+                isOn
+                  ? "border-[hsl(var(--gold))]/50 bg-[hsl(var(--gold))]/10 text-[hsl(var(--gold))]"
+                  : "border-border/50 text-muted-foreground hover:border-border hover:text-foreground"
+              }`}
+            >
+              <span className="flex items-center gap-2 text-xs font-medium">
+                <Power className="w-3.5 h-3.5" />
+                Питание
+              </span>
+              <span className="text-[10px] font-mono">{isOn ? "Вкл" : "Выкл"}</span>
+            </button>
+          )}
+
+          {rangeCaps.map((cap) => {
+            const instance = capabilityInstance(cap);
+            const meta = RANGE_LABELS[instance] ?? { label: instance || "Значение" };
+            const { min, max, step } = getRangeBounds(cap);
+            const rawValue = Number(cap.state?.value);
+            const value = Number.isFinite(rawValue) ? Math.min(max, Math.max(min, rawValue)) : min;
+            return (
+              <div key={`range-${instance}`}>
+                <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">
+                  {meta.label}:{" "}
+                  <span className="text-foreground font-mono font-semibold">
+                    {formatRangeValue(instance, cap.state?.value)}
+                  </span>
+                </p>
+                <Slider
+                  value={[value]}
+                  onValueCommit={(v) => send("devices.capabilities.range", instance, v[0])}
+                  min={min}
+                  max={max}
+                  step={step}
+                  disabled={controlDevice.isPending}
+                  className="w-full"
+                />
+                {instance === "open" && (
+                  <div className="flex gap-1 mt-1.5">
+                    <button
+                      onClick={() => send("devices.capabilities.range", instance, 100)}
+                      disabled={controlDevice.isPending}
+                      className="text-[10px] px-2 py-1 rounded-md border border-border/50 text-muted-foreground hover:text-foreground hover:border-border transition-colors"
+                    >
+                      Открыть
+                    </button>
+                    <button
+                      onClick={() => send("devices.capabilities.range", instance, 0)}
+                      disabled={controlDevice.isPending}
+                      className="text-[10px] px-2 py-1 rounded-md border border-border/50 text-muted-foreground hover:text-foreground hover:border-border transition-colors"
+                    >
+                      Закрыть
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {showColorTempK && (
+            <div>
+              <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">
+                Цветовая температура:{" "}
+                <span className="text-foreground font-mono font-semibold">
+                  {colorTempKValue > 0 ? `${colorTempKValue}K` : "—"}
+                </span>
+              </p>
+              <Slider
+                value={[Math.min(colorTempKMax, Math.max(colorTempKMin, colorTempKValue || colorTempKMin))]}
+                onValueCommit={(v) => send("devices.capabilities.color_setting", "temperature_k", v[0])}
+                min={colorTempKMin}
+                max={colorTempKMax}
+                step={100}
+                disabled={controlDevice.isPending}
+                className="w-full"
+              />
+            </div>
+          )}
+
+          {showColorPresets && (
+            <div>
+              <p className="text-[10px] text-muted-foreground mb-1.5 uppercase tracking-wider">Цвет</p>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {RGB_PRESETS.map((color) => {
+                  const hex = rgbToHex(color.r, color.g, color.b);
+                  const hsv = rgbToHsv(color.r, color.g, color.b);
+                  const isActive = colorInstance === "hsv"
+                    ? currentHsv?.h === hsv.h && currentHsv?.s === hsv.s && currentHsv?.v === hsv.v
+                    : currentRgb
+                      ? rgbToHex(currentRgb.r, currentRgb.g, currentRgb.b) === hex
+                      : false;
+                  return (
+                    <button
+                      key={hex}
+                      type="button"
+                      title={color.label}
+                      aria-label={`Цвет ${color.label}`}
+                      onClick={() => sendColor(color.r, color.g, color.b)}
+                      disabled={controlDevice.isPending}
+                      className={`w-6 h-6 rounded-full transition-all ${
+                        isActive ? "ring-2 ring-[hsl(var(--gold))] ring-offset-1 ring-offset-background scale-110" : "hover:scale-110"
+                      }`}
+                      style={{ backgroundColor: hex }}
+                    />
+                  );
+                })}
+                <input
+                  type="color"
+                  value={currentHex}
+                  onChange={(e) => {
+                    const { r, g, b } = hexToRgb(e.target.value);
+                    sendColor(r, g, b);
+                  }}
+                  disabled={controlDevice.isPending}
+                  title="Выбрать цвет"
+                  className="w-7 h-7 rounded-md border border-border bg-transparent cursor-pointer"
+                />
+              </div>
+            </div>
+          )}
+
+          {modeCaps.map((cap) => {
+            const instance = capabilityInstance(cap);
+            const values = getModeValues(cap);
+            if (values.length === 0) return null;
+            const current = cap.state?.value;
+            return (
+              <div key={`mode-${instance}`}>
+                <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">
+                  {MODE_TITLES[instance] ?? instance}
+                </p>
+                <div className="flex flex-wrap gap-1">
+                  {values.map((value) => {
+                    const acLabel = instance === "thermostat"
+                      ? AC_MODE_LABELS[value as keyof typeof AC_MODE_LABELS]
+                      : undefined;
+                    const label = acLabel
+                      ? `${acLabel.emoji} ${acLabel.label}`
+                      : MODE_VALUE_LABELS[instance]?.[value] ?? value;
+                    return (
+                      <button
+                        key={value}
+                        onClick={() => send(cap.type, instance, value)}
+                        disabled={controlDevice.isPending}
+                        className={`text-[10px] px-2 py-1 rounded-md border transition-colors ${
+                          current === value
+                            ? "border-primary text-primary bg-primary/20"
+                            : "border-border/50 text-muted-foreground hover:border-border hover:text-foreground"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+
+          {toggleCaps.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {toggleCaps.map((cap) => {
+                const instance = capabilityInstance(cap);
+                const active = cap.state?.value === true;
+                return (
+                  <button
+                    key={`toggle-${instance}`}
+                    onClick={() => send(cap.type, instance, !active)}
+                    disabled={controlDevice.isPending}
+                    className={`text-[10px] px-2 py-1 rounded-md border transition-colors ${
+                      active
+                        ? "border-primary/50 text-primary bg-primary/10"
+                        : "border-border/50 text-muted-foreground hover:border-border hover:text-foreground"
+                    }`}
+                  >
+                    {TOGGLE_LABELS[instance] ?? instance}: {active ? "вкл" : "выкл"}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {invertibleProps.length > 0 && (
+            <div>
+              <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">Инверсия датчиков</p>
+              <div className="flex flex-wrap gap-1">
+                {invertibleProps.map((prop) => {
+                  const instance = prop.parameters?.instance as InvertibleInstance;
+                  const active = isInverted(device.id, instance);
+                  return (
+                    <button
+                      key={`invert-${instance}`}
+                      onClick={() => toggleInverted(device.id, instance)}
+                      title={active ? "Значение перевёрнуто" : "Значение не перевёрнуто"}
+                      className={`text-[10px] px-2 py-1 rounded-md border transition-colors flex items-center gap-1 ${
+                        active
+                          ? "border-[hsl(var(--gold))]/50 text-[hsl(var(--gold))] bg-[hsl(var(--gold))]/10"
+                          : "border-border/50 text-muted-foreground hover:border-border hover:text-foreground"
+                      }`}
+                    >
+                      <ArrowLeftRight className="w-3 h-3" />
+                      {PROP_INSTANCE_LABELS[instance] ?? instance}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }

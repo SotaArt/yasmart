@@ -6,7 +6,7 @@ import { getDeviceIcon, type Device } from "@/lib/yandex";
 import { deviceCommandQueue } from "@/lib/command-queue";
 import { toast } from "@/hooks/use-toast";
 import type { TileSize } from "@/hooks/use-panel-config";
-import { LuxBadge, CardFrame } from "./premium";
+import { CardFrame, CardMetric } from "./premium";
 
 interface GenericDeviceCardProps {
   device: Device;
@@ -56,7 +56,7 @@ export function GenericDeviceCard({
     request: { headers: { "x-yandex-token": token } },
   });
 
-  const icon = getDeviceIcon(device.type);
+  const icon = getDeviceIcon(device.type, device.id);
   const isPinned = tileConfig?.pinned ?? false;
   const caps = getCapabilitySummary(device);
   const isOn = getIsOn(device);
@@ -103,33 +103,13 @@ export function GenericDeviceCard({
       dataTestId={`tile-device-${device.id}`}
       icon={icon}
       name={device.name}
+      metric={
+        firstInfo ? (
+          <CardMetric value={firstInfo.value} label={firstInfo.label} />
+        ) : undefined
+      }
       power={canToggle ? { on: isOn, onChange: handleToggle, label: device.name } : false}
       timer={canToggle}
-      top={
-        <div className="flex items-baseline gap-1">
-          <span className={`font-bold leading-none ${size === "compact" ? "text-base" : "text-xl"} ${isOn ? "text-[#f3e5ab]" : "text-muted-foreground"}`}>
-            {firstInfo?.value ?? (canToggle ? "—" : "Устройство")}
-          </span>
-        </div>
-      }
-      bottom={
-        <>
-          {size !== "compact" && firstInfo && (
-            <LuxBadge variant="muted" active>{firstInfo.value}</LuxBadge>
-          )}
-
-          {(size === "expanded" || size === "full") && caps.length > 0 && (
-            <div className="w-full space-y-1">
-              {caps.slice(0, size === "full" ? caps.length : 4).map((cap, i) => (
-                <div key={i} className="flex items-center justify-between px-2 py-1 rounded-lg bg-slate-900/60 border border-slate-700/40">
-                  <span className="text-[10px] text-slate-400 capitalize">{cap.label}</span>
-                  <span className={`text-[11px] font-mono ${cap.active ? "text-[#f3e5ab] font-semibold" : "text-slate-300"}`}>{cap.value}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </>
-      }
     />
   );
 }

@@ -107,10 +107,10 @@ export function AutomationsTab({ engine, state, devices, prefillToken }: Automat
         </div>
         {hasServerToken ? (
           <div className="flex items-center justify-between flex-wrap gap-2">
-            <p className="text-xs text-muted-foreground">
+            <div className="text-xs text-muted-foreground">
               <Badge variant="outline" className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30 mr-2">Сохранён</Badge>
               Фоновый цикл использует токен, сохранённый на сервере. Устройства для сценариев не требуют токена в браузере.
-            </p>
+            </div>
             <Button variant="ghost" size="sm" onClick={() => engine.deleteToken.mutate()} className="text-muted-foreground hover:text-destructive">
               Удалить токен
             </Button>

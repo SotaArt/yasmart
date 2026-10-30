@@ -113,7 +113,7 @@ export function SecurityCard({
 
   const state = getSecurityState(device);
   const config = stateConfig[state];
-  const icon = getDeviceIcon(device.type);
+  const icon = getDeviceIcon(device.type, device.id);
   const isPinned = tileConfig?.pinned ?? false;
   const lockCap = getDeviceCapability(device, "devices.capabilities.toggle", "lock");
   const canToggle = lockCap ? true : hasToggle(device);
@@ -180,34 +180,10 @@ export function SecurityCard({
       dataTestId={`tile-device-${device.id}`}
       icon={icon}
       name={device.name}
+      labelOn={config.label}
+      labelOff={state === "unlocked" ? "Открыто" : "Снято"}
       power={canToggle ? { on: state === "armed" || state === "locked", onChange: () => handleToggle(), label: device.name } : false}
       timer={canToggle}
-      top={
-        <div className="mt-1">
-          <span className={`inline-flex items-center gap-1.5 text-[10px] font-semibold px-2 py-1 rounded-lg ${config.color} ${config.bgColor} border ${config.borderColor}`}>
-            {config.icon}
-            {config.label}
-          </span>
-        </div>
-      }
-      bottom={
-        (size === "expanded" || size === "full") ? (
-          <div className="w-full space-y-1">
-            <div className="flex items-center justify-between px-2 py-1 rounded-lg bg-slate-900/60 border border-slate-700/40">
-              <span className="text-[10px] text-slate-400">Тип</span>
-              <span className="text-[10px] font-mono text-foreground">
-                {device.type.includes("lock") ? "Замок" : device.type.includes("alarm") ? "Сигнализация" : "Датчик"}
-              </span>
-            </div>
-            {device.room_id && (
-              <div className="flex items-center justify-between px-2 py-1 rounded-lg bg-slate-900/60 border border-slate-700/40">
-                <span className="text-[10px] text-slate-400">Помещение</span>
-                <span className="text-[10px] font-mono text-foreground">{device.room_id}</span>
-              </div>
-            )}
-          </div>
-        ) : undefined
-      }
       overlay={
         state === "alert" ? (
           <div className="absolute inset-0 rounded-lg border-2 border-device-error/40 animate-pulse pointer-events-none" />

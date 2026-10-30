@@ -2,16 +2,25 @@
   "name": "Yandex Smart Home Dashboard",
   "short_name": "Smart Home",
   "description": "Панель управления умным домом Яндекс",
+  "lang": "ru",
   "start_url": "/",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
   "background_color": "#0a0a0b",
-  "theme_color": "#d4af37",
+  "theme_color": "#0a0a0b",
   "orientation": "any",
   "icons": [
     {
       "src": "/icon.svg",
       "sizes": "any",
-      "type": "image/svg+xml"
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
     }
   ]
 }

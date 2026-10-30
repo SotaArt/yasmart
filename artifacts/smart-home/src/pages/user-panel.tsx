@@ -8,10 +8,14 @@ import {
 import { useYandexToken } from "@/hooks/use-yandex-token";
 import { getUserInfoKey } from "@/lib/query-keys";
 import { toast } from "@/hooks/use-toast";
-import { usePanelConfig, type TileSize } from "@/hooks/use-panel-config";
+import { usePanelConfig } from "@/hooks/use-panel-config";
 import { useDeviceVisibility } from "@/hooks/use-device-visibility";
 import { useRoomVisibility } from "@/hooks/use-room-visibility";
 import { useDashboardLayout } from "@/hooks/use-dashboard-layout";
+import { useSensorDevices } from "@/hooks/use-sensor-devices";
+import { useScenarioVisibility } from "@/hooks/use-scenario-visibility";
+import { useWidgetVisibility } from "@/hooks/use-widget-visibility";
+import { usePanelPwa } from "@/hooks/use-panel-pwa";
 import { getDeviceIcon } from "@/lib/yandex";
 import { TokenForm } from "@/components/token-form";
 import { WidgetRenderer } from "@/components/widgets";
@@ -23,11 +27,35 @@ import { QuickActionCard, SceneCard } from "@/components/smart-card";
 import { DeviceGridCard } from "@/components/smart-card/DeviceGridCard";
 import { matchDeviceToTemplate } from "@/lib/device-template-map";
 import { Plus, X, ChevronLeft, ChevronRight, Wifi } from "lucide-react";
+
+const DEVICE_ORDER_KEY = "eng_device_order_v1";
+
+function loadDeviceOrder(): Record<string, string[]> {
+  try {
+    return JSON.parse(localStorage.getItem(DEVICE_ORDER_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
 import { InfoPanel } from "./InfoPanel";
 import { RoomTab } from "./RoomTab";
 
+const FEATURED_DEVICE_KEY = "user_panel_featured_device_v1";
+
+function getFeaturedDeviceId(roomId: string | null): string | null {
+  if (!roomId) return null;
+  try {
+    const saved = JSON.parse(localStorage.getItem(FEATURED_DEVICE_KEY) || "{}");
+    return typeof saved[roomId] === "string" ? saved[roomId] : null;
+  } catch {
+    return null;
+  }
+}
+
 /* ─── Main User Panel ─── */
 export default function UserPanel() {
+  usePanelPwa("user");
+
   const params = useParams<{ householdId: string }>();
   const householdId = params.householdId;
 
@@ -40,32 +68,16 @@ export default function UserPanel() {
   } = usePanelConfig(householdId);
   const { filterDevices } = useDeviceVisibility();
   const { isRoomVisible } = useRoomVisibility();
-  const { getRoomCells, setCell, clearCell, getGridSize, getRoomBackground } = useDashboardLayout();
+  const { getRoomBackground } = useDashboardLayout();
+  const { isSensorOnly } = useSensorDevices();
+  const { isScenarioVisible, isScenarioInRoom } = useScenarioVisibility();
+  const { getWidgetsForRoom, setWidgetConfig } = useWidgetVisibility();
 
   const controlDevice = useControlDevice({
     request: { headers: { "x-yandex-token": token ?? "" } },
   });
   const queryClient = useQueryClient();
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
-  const gridSize = getGridSize(activeRoomId ?? undefined);
-
-  // Высота ячейки сетки ЮП (по фактическому размеру контейнера)
-  const gridRef = useRef<HTMLDivElement | null>(null);
-  const [rowHeight, setRowHeight] = useState(0);
-  useEffect(() => {
-    const el = gridRef.current;
-    if (!el) return;
-    const compute = () => {
-      const innerH = el.clientHeight - 8;
-      const rowH = (innerH - 12 * (gridSize.rows - 1)) / gridSize.rows;
-      setRowHeight(rowH > 0 ? rowH : 0);
-    };
-    compute();
-    const ro = new ResizeObserver(compute);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [gridSize.rows, activeRoomId]);
-  const compact = rowHeight > 0 && rowHeight < 140;
 
   // ── Timer execution ──
   // Самодостаточный планировщик: пробуждается в момент ближайшего таймера
@@ -114,6 +126,7 @@ export default function UserPanel() {
     return () => clearTimeout(id);
   }, [timers, controlDevice, cancelTimer, timerTick]);
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
+  const deviceOrder = useMemo(() => loadDeviceOrder(), []);
   const [showGroupManager, setShowGroupManager] = useState(false);
   const roomBackground = activeRoomId ? getRoomBackground(activeRoomId) : null;
 
@@ -224,7 +237,6 @@ export default function UserPanel() {
   // Swipe detection
   const swipeStartX = useRef<number | null>(null);
   const swipeStartY = useRef<number | null>(null);
-  const gridContainerRef = useRef<HTMLDivElement>(null);
 
   const onWorkspaceTouchStart = useCallback((e: React.TouchEvent) => {
     swipeStartX.current = e.touches[0].clientX;
@@ -304,7 +316,10 @@ export default function UserPanel() {
                     key={room.id}
                     room={room}
                     isActive={activeRoomId === room.id}
-                    onClick={() => setActiveRoomId(room.id)}
+                    onClick={() => {
+                      setActiveGroupId(null);
+                      setActiveRoomId(room.id);
+                    }}
                     minWidth={roomMinWidth}
                   />
               ))}
@@ -370,210 +385,159 @@ export default function UserPanel() {
             </div>
           )}
 
-          {/* Main content area */}
+          {/* Main content area — 3 adaptive rows */}
           <div
-            ref={gridContainerRef}
-            className="px-3 flex-1 flex flex-col overflow-hidden pb-14"
+            className="px-3 flex-1 min-h-0 flex flex-col overflow-hidden"
             onTouchStart={onWorkspaceTouchStart}
             onTouchEnd={onWorkspaceTouchEnd}
           >
-            {/* Quick Actions */}
-            {quickActions.length > 0 && (
-              <div className="mb-3">
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2 px-1">Быстрые действия</p>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 auto-rows-[120px]">
-                  {quickActions.map((qa) => (
-                    <QuickActionCard
-                      key={qa.id}
-                      quickAction={qa}
-                      token={token ?? ""}
-                      size="standard"
-                      onDelete={() => deleteQuickAction(qa.id)}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
             {userInfoQuery.isLoading ? (
-              <div className="space-y-3">
-                {Array.from({ length: 3 }).map((_, i) => (
-                  <Skeleton key={i} className="h-32 rounded-lg" />
-                ))}
+              <div className="flex-1 min-h-0 grid grid-rows-3 gap-2">
+                <Skeleton className="row-span-2 rounded-lg" />
+                <Skeleton className="rounded-lg" />
               </div>
             ) : (
-              <>
-                {/* ── Grid from ИП "Сетка" layout ── */}
-                {(() => {
-                  // Группа: рендерим устройства группы сеткой-плиткой
-                  if (activeGroupId) {
-                    const cols = Math.max(2, gridSize.cols);
-                    return (
-                      <div className="relative flex-1 flex flex-col min-h-0">
-                        <div className="flex-1 min-h-0 overflow-y-auto p-1">
-                          <div
-                            className="grid gap-3"
-                            style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
-                          >
-                            {roomDevices.map((device: any) => (
-                              <div
-                                key={device.id}
-                                className="h-44 min-h-0 min-w-0 rounded-lg overflow-hidden"
-                              >
-                                <DeviceGridCard
-                                  device={device}
-                                  token={token ?? ""}
-                                  size="standard"
-                                  timers={timers}
-                                  onAddTimer={createTimer}
-                                  onCancelTimer={cancelTimer}
-                                  tileConfig={config[device.id]}
-                                  onPin={() => updateTileConfig(device.id, { pinned: !config[device.id]?.pinned })}
-                                  onDelete={activeGroupId ? () => toggleDeviceInGroup(activeGroupId, device.id) : undefined}
-                                />
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  }
+              (() => {
+                const featuredDeviceId = getFeaturedDeviceId(activeRoomId);
+                const orderList = activeRoomId ? deviceOrder[activeRoomId] || [] : [];
+                const orderMap = new Map(orderList.map((id, idx) => [id, idx]));
+                const cardDevices = roomDevices
+                  .filter(
+                    (d: any) =>
+                      !isSensorOnly(d.id) &&
+                      !matchDeviceToTemplate(d)?.startsWith("sensor-")
+                  )
+                  .sort((a: any, b: any) => {
+                    const af = Number(b.id === featuredDeviceId) - Number(a.id === featuredDeviceId);
+                    if (af !== 0) return af;
+                    const ai = orderMap.has(a.id) ? orderMap.get(a.id)! : Number.MAX_SAFE_INTEGER;
+                    const bi = orderMap.has(b.id) ? orderMap.get(b.id)! : Number.MAX_SAFE_INTEGER;
+                    if (ai !== bi) return ai - bi;
+                    return 0;
+                  });
 
-                  const cells = activeRoomId ? getRoomCells(activeRoomId) : {};
-                  const hasLayout = Object.keys(cells).length > 0;
+                const visibleScenarios = !activeGroupId && currentRoom
+                  ? scenarios.filter(
+                      (sc: any) =>
+                        isScenarioVisible(sc.id) &&
+                        isScenarioInRoom(sc.id, currentRoom.id)
+                    )
+                  : [];
 
-                  if (!hasLayout) {
-                    return (
-                      <div className="text-center py-12 text-muted-foreground">
-                        <p className="text-sm">Сетка не настроена</p>
-                        <p className="text-xs mt-1">Перейдите в ИП → Сетка, чтобы расставить карточки</p>
-                      </div>
-                    );
-                  }
+                const visibleWidgets = !activeGroupId && currentRoom
+                  ? getWidgetsForRoom(currentRoom.id)
+                  : [];
 
+                const bottomItemsCount =
+                  quickActions.length + visibleScenarios.length + visibleWidgets.length;
+
+                if (cardDevices.length === 0 && bottomItemsCount === 0) {
                   return (
-                    <div className="relative flex-1 flex flex-col min-h-0">
-                      <div className="flex-1 min-h-0 overflow-hidden">
-                        <div
-                          ref={gridRef}
-                          className="h-full p-1 overflow-hidden"
-                          style={{
-                            display: "grid",
-                            gridTemplateColumns: `repeat(${gridSize.cols}, minmax(0, 1fr))`,
-                            gridTemplateRows: `repeat(${gridSize.rows}, minmax(0, 1fr))`,
-                            gap: "12px",
-                          }}
-                        >
-                          {Object.entries(cells).map(([key, cell]) => {
-                            const [col, row] = key.split(",").map(Number);
-                            const spanCols = cell.spanCols ?? 1;
-                            const spanRows = cell.spanRows ?? 1;
-
-                            // Вычисляем CSS grid позицию (1-based)
-                            const gridColumn = `${col + 1} / span ${spanCols}`;
-                            const gridRow = `${row + 1} / span ${spanRows}`;
-
-                            // Device card
-                            if (cell.deviceId) {
-                              const device = allDevices.find((d: any) => d.id === cell.deviceId);
-                              if (!device) return null;
-
-                              const tileConf = config[device.id];
-                              const handlePin = () => updateTileConfig(device.id, { pinned: !tileConf?.pinned });
-                              const handleResize = (size: TileSize) => {
-                                const span: { spanCols?: number; spanRows?: number } =
-                                  size === "2x1" ? { spanCols: 2, spanRows: 1 } :
-                                  size === "1x2" ? { spanCols: 1, spanRows: 2 } :
-                                  size === "2x2" ? { spanCols: 2, spanRows: 2 } :
-                                  {};
-                                const next: Record<string, number> = {};
-                                if (span.spanCols != null) next.spanCols = Math.max(1, Math.min(span.spanCols, gridSize.cols - col));
-                                if (span.spanRows != null) next.spanRows = Math.max(1, Math.min(span.spanRows, gridSize.rows - row));
-                                setCell(activeRoomId!, col, row, { ...cell, ...next });
-                              };
-                              const handleDelete = () => clearCell(activeRoomId!, col, row);
-
-                              return (
-                                <div
-                                  key={key}
-                                  className="relative min-h-0 min-w-0 h-full w-full rounded-lg overflow-hidden"
-                                  style={{
-                                    gridColumn,
-                                    gridRow,
-                                  }}
-                                >
-                                  <DeviceGridCard
-                                    key={device.id}
-                                    device={device}
-                                    token={token ?? ""}
-                                    size={compact && matchDeviceToTemplate(device) !== "ac" && spanCols === 1 && spanRows === 1 ? "compact" : spanCols > 1 || spanRows > 1 ? (spanCols >= 2 && spanRows >= 2 ? "full" : "expanded") : "standard"}
-                                    timers={timers}
-                                    onAddTimer={createTimer}
-                                    onCancelTimer={cancelTimer}
-                                    hiddenParts={(cell as any).hiddenParts as any}
-                                    tileConfig={tileConf}
-                                    onPin={handlePin}
-                                    onResize={handleResize}
-                                    onDelete={handleDelete}
-                                  />
-                                </div>
-                              );
-                            }
-
-                            // Scenario card
-                            if (cell.scenarioId) {
-                              const scenario = scenarios.find((sc: any) => sc.id === cell.scenarioId);
-                              if (!scenario) return null;
-                              return (
-                                <div
-                                  key={key}
-                                  className="min-h-0 h-full w-full rounded-lg"
-                                  style={{
-                                    gridColumn,
-                                    gridRow,
-                                  }}
-                                >
-                                  <SceneCard
-                                    scenario={{
-                                      id: (scenario as any).id,
-                                      name: (scenario as any).name,
-                                    }}
-                                    token={token ?? ""}
-                                    size="standard"
-                                  />
-                                </div>
-                              );
-                            }
-
-                            // Widget
-                            if (cell.widget) {
-                              return (
-                                <div
-                                  key={key}
-                                  className="min-h-0 h-full w-full rounded-lg"
-                                  style={{
-                                    gridColumn,
-                                    gridRow,
-                                  }}
-                                >
-                                  <WidgetRenderer
-                                    config={cell.widget}
-                                    onChange={(newConfig) => {
-                                      setCell(activeRoomId!, col, row, { ...cell, widget: newConfig });
-                                    }}
-                                  />
-                                </div>
-                              );
-                            }
-
-                            return null;
-                          })}
-                        </div>
-                      </div>
+                    <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground">
+                      <p className="text-sm">Нет видимых элементов</p>
+                      <p className="text-xs mt-1">
+                        Включите устройства, сценарии или виджеты в инженерной панели
+                      </p>
                     </div>
                   );
-                })()}
-              </>
+                }
+
+                const deviceRows = [
+                  cardDevices.slice(0, 6),
+                  cardDevices.slice(6),
+                ];
+
+                return (
+                  <div className="flex-1 min-h-0 grid grid-rows-3 gap-2">
+                    {/* Первые две строки — оборудование */}
+                    <section className="row-span-2 min-h-0 flex flex-col gap-2">
+                      {deviceRows.map((row, rowIndex) => (
+                        <div
+                          key={rowIndex}
+                          className="flex-1 min-h-0 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 auto-rows-fr gap-2 overflow-y-auto"
+                        >
+                          {row.map((device: any) => (
+                            <div
+                              key={device.id}
+                              className="min-w-0 h-full rounded-lg overflow-hidden"
+                            >
+                              <DeviceGridCard
+                                device={device}
+                                token={token ?? ""}
+                                size="standard"
+                                timers={timers}
+                                onAddTimer={createTimer}
+                                onCancelTimer={cancelTimer}
+                                tileConfig={config[device.id]}
+                                onPin={() =>
+                                  updateTileConfig(device.id, {
+                                    pinned: !config[device.id]?.pinned,
+                                  })
+                                }
+                                onDelete={
+                                  activeGroupId
+                                    ? () => toggleDeviceInGroup(activeGroupId, device.id)
+                                    : undefined
+                                }
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                      {cardDevices.length === 0 && (
+                        <div className="flex-1 min-h-0 flex items-center justify-center rounded-lg border border-dashed border-border/40 text-xs text-muted-foreground">
+                          Нет устройств в этой комнате
+                        </div>
+                      )}
+                    </section>
+
+                    {/* Третья строка — быстрые действия, сценарии и виджеты */}
+                    <section className="row-span-1 min-h-0 flex gap-2">
+                      {quickActions.map((qa) => (
+                        <div
+                          key={`quick-${qa.id}`}
+                          className="min-w-0 h-full flex-1 rounded-lg overflow-hidden"
+                        >
+                          <QuickActionCard
+                            quickAction={qa}
+                            token={token ?? ""}
+                            size="standard"
+                            onDelete={() => deleteQuickAction(qa.id)}
+                          />
+                        </div>
+                      ))}
+                      {visibleScenarios.map((scenario: any) => (
+                        <div
+                          key={`scenario-${scenario.id}`}
+                          className="min-w-0 h-full flex-1 rounded-lg overflow-hidden"
+                        >
+                          <SceneCard
+                            scenario={{ id: scenario.id, name: scenario.name }}
+                            token={token ?? ""}
+                            size="standard"
+                          />
+                        </div>
+                      ))}
+                      {visibleWidgets.map(({ type, config: widgetConfig }) => (
+                        <div
+                          key={`widget-${type}`}
+                          className="min-w-0 h-full flex-1 rounded-lg overflow-hidden"
+                        >
+                          <WidgetRenderer
+                            config={widgetConfig}
+                            onChange={(nextConfig) => setWidgetConfig(type, nextConfig)}
+                          />
+                        </div>
+                      ))}
+                      {bottomItemsCount === 0 && (
+                        <div className="flex-1 min-h-0 flex items-center justify-center rounded-lg border border-dashed border-border/40 text-xs text-muted-foreground">
+                          Включите сценарии или виджеты в инженерной панели
+                        </div>
+                      )}
+                    </section>
+                  </div>
+                );
+              })()
             )}
           </div>
 
@@ -675,7 +639,12 @@ export default function UserPanel() {
                   .filter((d: any) => d.household_id === householdId)
                   .map((device: any) => (
                     <div key={device.id} className="flex items-center gap-2 text-sm">
-                      <span>{getDeviceIcon(device.type)}</span>
+                      <span className="flex items-center justify-center w-5 h-5">
+                        {(() => {
+                          const icon = getDeviceIcon(device.type, device.id);
+                          return icon.startsWith("data:") ? <img src={icon} alt="" className="w-4 h-4 object-contain" /> : <span className="text-base leading-none">{icon}</span>;
+                        })()}
+                      </span>
                       <span className="flex-1 truncate">{device.name}</span>
                       <select
                         className="text-xs px-2 py-1 rounded bg-background border border-border"

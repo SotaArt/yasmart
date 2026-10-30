@@ -1,10 +1,11 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Clock, ChevronDown, ChevronUp, X } from "lucide-react";
+import { Clock, ChevronDown, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { DeviceTimer } from "@/hooks/use-panel-config";
 import type { CardSize } from "./types";
 import { SmartCardDivider } from "./premium/SmartCardDivider";
+import { CardSettingsLink } from "./premium/CardSettingsLink";
 import { formatTimeRemaining, PRESETS } from "@/components/TimerManager";
 
 interface CardTimerContextValue {
@@ -52,7 +53,15 @@ export function CardTimerProvider({
  * контента всплывает панель с действием «Вкл/Выкл» и пресетами времени.
  * Обратный отсчёт — раз в секунду.
  */
-export function CardTimerSection() {
+interface CardTimerSectionProps {
+  showTimer?: boolean;
+  onSettings?: () => void;
+}
+
+export function CardTimerSection({
+  showTimer = true,
+  onSettings,
+}: CardTimerSectionProps = {}) {
   const ctx = useContext(CardTimerContext);
   const [action, setAction] = useState<"on" | "off">("off");
   const [, setTick] = useState(0);
@@ -72,44 +81,40 @@ export function CardTimerSection() {
   if (!ctx) return null;
 
   const { open, setOpen } = ctx;
+  const showSettings = !!onSettings;
+  const hasFooter = showTimer || showSettings;
 
   return (
-    <div className={cn("w-full shrink-0 relative", open && "pointer-events-auto")}>
+    <div className={cn("w-full shrink-0 relative", open && showTimer && "pointer-events-auto")}>
       <SmartCardDivider className="mt-2 mb-1.5" />
 
-      {/* Компактная строка — всегда видна и кликабельна (сворачивание) */}
-      <div className="flex items-center justify-center">
-        <button
-          type="button"
-          onClick={() => setOpen(!open)}
-          className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-medium text-slate-400 border border-white/10 bg-white/[0.04] hover:text-[#f3e5ab] hover:border-[#d4af37]/40 transition-all duration-200"
-        >
-          <Clock className="w-3 h-3" />
-          {timer ? (
-            <span className="font-mono">
-              {timer.action === "off" ? "Выкл" : "Вкл"} через {formatTimeRemaining(timer.executeAt)}
-            </span>
-          ) : (
-            <span>Таймер</span>
+      {hasFooter && (
+        <div className="flex items-center justify-center gap-1.5">
+          {showTimer && (
+            <button
+              type="button"
+              onClick={() => setOpen(!open)}
+              className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-medium text-slate-400 border border-white/10 bg-white/[0.04] hover:text-[#f3e5ab] hover:border-[#d4af37]/40 transition-all duration-200"
+            >
+              <Clock className="w-3 h-3" />
+              {timer ? (
+                <span className="font-mono">
+                  {timer.action === "off" ? "Выкл" : "Вкл"} через {formatTimeRemaining(timer.executeAt)}
+                </span>
+              ) : (
+                <span>Таймер</span>
+              )}
+              {open ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />}
+            </button>
           )}
-          {open ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />}
-        </button>
-        {timer && (
-          <button
-            type="button"
-            onClick={() => ctx.onCancelTimer(timer.id)}
-            className="ml-1.5 p-1 rounded-full text-slate-500 hover:text-red-400 transition-colors"
-            title="Отменить таймер"
-          >
-            <X className="w-3 h-3" />
-          </button>
-        )}
-      </div>
+          {showSettings && <CardSettingsLink onClick={onSettings} />}
+        </div>
+      )}
 
       {/* Панель таймера: всплывает над контентом, приглушая его тёмным фоном.
           Сквозь неё элементы под ней неактивны (см. provider). */}
       <AnimatePresence initial={false}>
-        {open && (
+        {showTimer && open && (
           <motion.div
             key="panel"
             initial={{ opacity: 0, y: 8 }}

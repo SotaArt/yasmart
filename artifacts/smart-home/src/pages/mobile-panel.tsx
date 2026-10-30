@@ -1,8 +1,11 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useParams } from "wouter";
-import { useGetUserInfo } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useControlDevice, useGetUserInfo } from "@workspace/api-client-react";
 import { useYandexToken } from "@/hooks/use-yandex-token";
 import { getUserInfoKey } from "@/lib/query-keys";
+import { toast } from "@/hooks/use-toast";
+import { usePanelConfig } from "@/hooks/use-panel-config";
 import {
   sortRooms,
   type Device,
@@ -11,116 +14,27 @@ import {
 import { useDeviceVisibility } from "@/hooks/use-device-visibility";
 import { useRoomVisibility } from "@/hooks/use-room-visibility";
 import { useSensorDevices } from "@/hooks/use-sensor-devices";
+import { usePanelPwa } from "@/hooks/use-panel-pwa";
 import { matchDeviceToTemplate } from "@/lib/device-template-map";
 import { TokenForm } from "@/components/token-form";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MobileHeader } from "./mobile/MobileHeader";
-import { MobileDeviceCard } from "./mobile/MobileDeviceCard";
+import { DeviceGridCard } from "@/components/smart-card/DeviceGridCard";
 import { ChevronLeft, ChevronRight, Wifi } from "lucide-react";
 
-const HIDDEN_ENG_KEY = "hidden_eng_devices_v1";
+const DEVICE_ORDER_KEY = "eng_device_order_v1";
 
-/* Категории карточек в ЮМП ─── */
-
-type GroupId = "light" | "climate" | "comfort" | "security" | "other";
-
-/** Типы capability, которые реально управляют устройством (не «датчиковые») */
-const CONTROL_CAP_TYPES = new Set([
-  "devices.capabilities.on_off",
-  "devices.capabilities.mode",
-  "devices.capabilities.range",
-  "devices.capabilities.toggle",
-  "devices.capabilities.color_setting",
-]);
-
-function hasControlCapability(device: Device): boolean {
-  return (device.capabilities ?? []).some((c) => CONTROL_CAP_TYPES.has(c.type));
-}
-
-/** Датчик/пульт/кнопка — такие карточки в списке не показываем */
-function isSensorLike(device: Device): boolean {
-  if (device.type.startsWith("devices.types.sensor")) return true;
-  if (matchDeviceToTemplate(device)?.startsWith("sensor-")) return true;
-  // Устройство без управляющих capability, но с данными датчиков (датчик-пульт и т.п.)
-  if (!hasControlCapability(device)) return true;
-  return false;
-}
-
-const GROUP_META: { id: GroupId; label: string; icon: string }[] = [
-  { id: "light", label: "Свет", icon: "💡" },
-  { id: "climate", label: "Климат", icon: "🌡️" },
-  { id: "comfort", label: "Комфорт", icon: "🛋️" },
-  { id: "security", label: "Безопасность", icon: "🛡️" },
-  { id: "other", label: "Прочее", icon: "📦" },
-];
-
-/** Категория + порядок внутри категории (от важного к менее важному) */
-function deviceGroup(device: Device): { id: GroupId; order: number } {
-  const t = device.type;
-  const name = (device.name ?? "").toLowerCase();
-  const isControl = t.startsWith("devices.types.switch") || t.startsWith("devices.types.socket");
-  const isLightControlName = /свет|люстр|витрин|ночн|подсветк|лампа|лента|гирлянд/.test(name);
-
-  if (t.startsWith("devices.types.light") || (isControl && isLightControlName)) {
-    let order = 90;
-    if (/свет/i.test(name)) order = 10;
-    else if (/люстр/i.test(name) || t === "devices.types.light.ceiling") order = 20;
-    else if (/витрин/i.test(name)) order = 30;
-    else if (/лента/i.test(name) || t === "devices.types.light.strip") order = 35;
-    else if (/ночн/i.test(name) || t === "devices.types.light.garland") order = 40;
-    else if (/лампа|торшер|бра/.test(name) || t.includes(".lamp") || t.includes("torchere") || t.includes("sconce")) order = 50;
-    return { id: "light", order };
-  }
-
-  if (
-    t.startsWith("devices.types.thermostat") ||
-    t.startsWith("devices.types.humidifier") ||
-    t.startsWith("devices.types.purifier") ||
-    t.startsWith("devices.types.ventilation") ||
-    t === "devices.types.cooking.hood"
-  ) {
-    let order = 90;
-    if (t.includes("ventilation")) order = 10;
-    else if (t === "devices.types.cooking.hood") order = 20;
-    else if (t === "devices.types.thermostat.ac") order = 30;
-    else if (t === "devices.types.thermostat") order = 40;
-    else if (t === "devices.types.thermostat.heater") order = 50;
-    else if (t.includes("purifier")) order = 60;
-    else if (t.includes("humidifier")) order = 70;
-    return { id: "climate", order };
-  }
-
-  if (
-    t === "devices.types.openable.curtain" ||
-    t.startsWith("devices.types.media_device") ||
-    t.includes("speaker") ||
-    t.includes("station")
-  ) {
-    let order = 90;
-    if (t === "devices.types.openable.curtain") order = 10;
-    else if (t === "devices.types.media_device.tv") order = 20;
-    else if (t.includes("speaker") || t.includes("station")) order = 30;
-    else order = 40;
-    return { id: "comfort", order };
-  }
-
-  if (t === "devices.types.openable.valve" || t === "devices.types.openable.door_lock") {
-    return { id: "security", order: t.includes("valve") ? 10 : 20 };
-  }
-
-  return { id: "other", order: 0 };
-}
-
-function loadHiddenEng(): Set<string> {
+function loadDeviceOrder(): Record<string, string[]> {
   try {
-    const saved = localStorage.getItem(HIDDEN_ENG_KEY);
-    return saved ? new Set<string>(JSON.parse(saved)) : new Set<string>();
+    return JSON.parse(localStorage.getItem(DEVICE_ORDER_KEY) || "{}");
   } catch {
-    return new Set<string>();
+    return {};
   }
 }
 
 export default function MobilePanel() {
+  usePanelPwa("mobile");
+
   const params = useParams<{ householdId: string }>();
   const householdId = params.householdId;
 
@@ -128,21 +42,63 @@ export default function MobilePanel() {
   const { filterDevices } = useDeviceVisibility();
   const { isRoomVisible } = useRoomVisibility();
   const { isSensorOnly } = useSensorDevices();
+  const {
+    config, initDeviceConfig, updateTileConfig,
+    timers, createTimer, cancelTimer,
+  } = usePanelConfig(householdId);
 
-  const [hiddenEng, setHiddenEng] = useState<Set<string>>(loadHiddenEng);
+  const controlDevice = useControlDevice({
+    request: { headers: { "x-yandex-token": token ?? "" } },
+  });
+  const queryClient = useQueryClient();
+
+  // ── Timer execution (same behaviour as ЮП) ──
+  const [timerTick, setTimerTick] = useState(0);
+  const executingTimersRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const due = timers.filter(
+      (t) => t.active && t.executeAt <= Date.now() && !executingTimersRef.current.has(t.id)
+    );
+    if (due.length > 0) {
+      due.forEach((timer) => {
+        executingTimersRef.current.add(timer.id);
+        controlDevice.mutate({
+          deviceId: timer.deviceId,
+          data: {
+            actions: [
+              {
+                type: "devices.capabilities.on_off",
+                state: { instance: "on", value: timer.action === "on" },
+              },
+            ],
+          },
+        }, {
+          onSuccess: () => {
+            executingTimersRef.current.delete(timer.id);
+            cancelTimer(timer.id);
+          },
+          onError: () => {
+            executingTimersRef.current.delete(timer.id);
+            queryClient.invalidateQueries({ queryKey: getUserInfoKey(token) });
+            toast({ variant: "destructive", title: "Ошибка", description: `Не удалось выполнить таймер для устройства` });
+          },
+        });
+      });
+      return;
+    }
+    const upcoming = timers.filter((t) => t.active && t.executeAt > Date.now());
+    if (upcoming.length === 0) return;
+    const nextAt = Math.min(...upcoming.map((t) => t.executeAt));
+    const id = setTimeout(
+      () => setTimerTick((t) => t + 1),
+      Math.min(60_000, Math.max(0, nextAt - Date.now()) + 100)
+    );
+    return () => clearTimeout(id);
+  }, [timers, controlDevice, cancelTimer, timerTick, queryClient, token]);
+
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
   const roomChipRefs = useRef(new Map<string, HTMLButtonElement | null>());
-
-  // Синхронизация скрытых в ИП устройств (cross-tab / та же вкладка)
-  useEffect(() => {
-    const sync = () => setHiddenEng(loadHiddenEng());
-    window.addEventListener("storage", sync);
-    window.addEventListener("engineering-devices-hidden", sync);
-    return () => {
-      window.removeEventListener("storage", sync);
-      window.removeEventListener("engineering-devices-hidden", sync);
-    };
-  }, []);
 
   // Активный чип комнаты всегда в зоне видимости строки
   useEffect(() => {
@@ -163,6 +119,7 @@ export default function MobilePanel() {
   const userInfo = userInfoQuery.data;
   const allRooms = useMemo(() => (userInfo?.rooms as any[]) ?? [], [userInfo]);
   const allDevices = useMemo(() => (userInfo?.devices as any[]) ?? [], [userInfo]);
+  const deviceOrder = useMemo(() => loadDeviceOrder(), []);
 
   const householdRooms = useMemo(
     () => allRooms.filter((r: any) => r.household_id === householdId),
@@ -194,42 +151,31 @@ export default function MobilePanel() {
         d.household_id === householdId &&
         (currentRoom.devices?.includes(d.id) || d.room_id === currentRoom.id)
     );
-    return filterDevices(inRoom as Device[]).filter((d) => !hiddenEng.has(d.id));
-  }, [currentRoom, allDevices, householdId, filterDevices, hiddenEng]);
+    return filterDevices(inRoom as Device[]);
+  }, [currentRoom, allDevices, householdId, filterDevices]);
 
-  const listDevices = useMemo(
-    () =>
-      roomDevices.filter(
+  // Те же карточки, что и в ЮП: без датчиков, в порядке из инженерной панели.
+  const cardDevices = useMemo(() => {
+    const orderList = currentRoom?.id ? deviceOrder[currentRoom.id] || [] : [];
+    const orderMap = new Map(orderList.map((id, idx) => [id, idx]));
+    return roomDevices
+      .filter(
         (d) =>
           !isSensorOnly(d.id) &&
-          !isSensorLike(d) &&
-          (hasControlCapability(d) || d.type === "devices.types.camera")
-      ),
-    [roomDevices, isSensorOnly]
-  );
-
-  const groupedDevices = useMemo(() => {
-    const groups: Record<GroupId, Device[]> = {
-      light: [],
-      climate: [],
-      comfort: [],
-      security: [],
-      other: [],
-    };
-    for (const d of listDevices) {
-      const g = deviceGroup(d);
-      groups[g.id].push(d);
-    }
-    for (const key of Object.keys(groups) as GroupId[]) {
-      groups[key].sort((a, b) => {
-        const oa = deviceGroup(a).order;
-        const ob = deviceGroup(b).order;
-        if (oa !== ob) return oa - ob;
-        return a.name.localeCompare(b.name, "ru");
+          !matchDeviceToTemplate(d)?.startsWith("sensor-")
+      )
+      .sort((a, b) => {
+        const ai = orderMap.has(a.id) ? orderMap.get(a.id)! : Number.MAX_SAFE_INTEGER;
+        const bi = orderMap.has(b.id) ? orderMap.get(b.id)! : Number.MAX_SAFE_INTEGER;
+        return ai - bi;
       });
-    }
-    return groups;
-  }, [listDevices]);
+  }, [roomDevices, currentRoom?.id, deviceOrder, isSensorOnly]);
+
+  const roomDeviceIds = cardDevices.map((d) => d.id).join(",");
+  useEffect(() => {
+    cardDevices.forEach((d) => { if (!config[d.id]) initDeviceConfig(d.id); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomDeviceIds]);
 
   const goToPrevRoom = useCallback(() => {
     setActiveRoomId((id) => {
@@ -281,27 +227,7 @@ export default function MobilePanel() {
   ).length;
 
   return (
-    <div
-      className="h-[100dvh] w-full flex flex-col bg-background text-foreground overflow-hidden"
-      style={{
-        /* ── Локальная СВЕТЛАЯ тема ЮМП (белая), независимо от глобальной тёмной ── */
-        ["--background" as string]: "206 30% 98%",
-        ["--foreground" as string]: "217 33% 14%",
-        ["--card" as string]: "0 0% 100%",
-        ["--card-foreground" as string]: "217 33% 14%",
-        ["--card-border" as string]: "217 15% 88%",
-        ["--border" as string]: "217 15% 88%",
-        ["--input" as string]: "217 15% 86%",
-        ["--muted" as string]: "214 20% 94%",
-        ["--muted-foreground" as string]: "217 12% 44%",
-        ["--accent" as string]: "214 25% 93%",
-        ["--accent-foreground" as string]: "217 33% 14%",
-        ["--gold" as string]: "38 92% 46%",
-        ["--primary" as string]: "38 92% 46%",
-        ["--primary-foreground" as string]: "0 0% 100%",
-        ["--ring" as string]: "38 92% 46%",
-      }}
-    >
+    <div className="h-[100dvh] w-full flex flex-col bg-background text-foreground overflow-hidden">
       {!token ? (
         <div className="p-4 flex-1">
           <TokenForm onSave={setToken} />
@@ -361,33 +287,36 @@ export default function MobilePanel() {
             {userInfoQuery.isLoading ? (
               <div className="grid grid-cols-2 gap-2">
                 {Array.from({ length: 4 }).map((_, i) => (
-                  <Skeleton key={i} className="h-28 rounded-xl" />
+                  <Skeleton key={i} className="aspect-square rounded-xl" />
                 ))}
               </div>
-            ) : listDevices.length === 0 ? (
+            ) : cardDevices.length === 0 ? (
               <div className="text-center py-12 text-sm text-muted-foreground">
                 {visibleRooms.length === 0 ? "Нет видимых комнат" : "Нет устройств для управления"}
               </div>
             ) : (
-              <div className="space-y-4">
-                {GROUP_META.map((g) => {
-                  const devices = groupedDevices[g.id];
-                  if (devices.length === 0) return null;
-                  return (
-                    <section key={g.id}>
-                      <div className="flex items-center gap-1.5 px-1 pt-1 pb-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-                        <span className="text-xs">{g.icon}</span>
-                        <span>{g.label}</span>
-                        <span className="text-[10px] text-muted-foreground/60">· {devices.length}</span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        {devices.map((device) => (
-                          <MobileDeviceCard key={device.id} device={device} token={token} />
-                        ))}
-                      </div>
-                    </section>
-                  );
-                })}
+              <div className="grid grid-cols-2 gap-2">
+                {cardDevices.map((device) => (
+                  <div
+                    key={device.id}
+                    className="min-w-0 aspect-square rounded-xl overflow-hidden"
+                  >
+                    <DeviceGridCard
+                      device={device}
+                      token={token ?? ""}
+                      size="standard"
+                      timers={timers}
+                      onAddTimer={createTimer}
+                      onCancelTimer={cancelTimer}
+                      tileConfig={config[device.id]}
+                      onPin={() =>
+                        updateTileConfig(device.id, {
+                          pinned: !config[device.id]?.pinned,
+                        })
+                      }
+                    />
+                  </div>
+                ))}
               </div>
             )}
           </div>
